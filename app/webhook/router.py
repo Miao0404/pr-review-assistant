@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
 from app.core.config import settings
 from app.github.client import get_pr_files, post_review_comment
@@ -18,6 +18,7 @@ def verify_signature(payload: bytes, signature: str) -> bool:
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(f"sha256={expected}", signature)
+
 
 def format_review(review) -> str:
     lines = ["## AI PR Review\n"]
@@ -40,9 +41,17 @@ def format_review(review) -> str:
     return "\n".join(lines)
 
 
+def process_review(repo_full_name: str, pr_number: int):
+    files = get_pr_files(repo_full_name, pr_number)
+    review = review_pr(files)
+    comment = format_review(review)
+    post_review_comment(repo_full_name, pr_number, comment)
+
+
 @router.post("/github")
 async def github_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_github_event: str = Header(...),
     x_hub_signature_256: str = Header(...),
 ):
@@ -63,9 +72,6 @@ async def github_webhook(
     pr_number = data["pull_request"]["number"]
     repo_full_name = data["repository"]["full_name"]
 
-    files = get_pr_files(repo_full_name, pr_number)
-    review = review_pr(files)
-    comment = format_review(review)
-    post_review_comment(repo_full_name, pr_number, comment)
+    background_tasks.add_task(process_review, repo_full_name, pr_number)
 
-    return {"status": "reviewed", "pr": pr_number}
+    return {"status": "processing", "pr": pr_number}
