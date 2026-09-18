@@ -65,4 +65,5 @@ description, severity (high/medium/low), and a concrete suggestion.
     )
 
     tool_use = next(b for b in response.content if b.type == "tool_use")
-    return ReviewResult(**tool_use.input)
+    data = tool_use.input.get("review", tool_use.input)
+    return ReviewResult(**data)
