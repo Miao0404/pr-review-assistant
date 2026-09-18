@@ -6,7 +6,7 @@ from app.rag.embedder import embed_chunks
 COLLECTION_NAME = "pr_chunks"
 VECTOR_SIZE = 1536
 
-qdrant = QdrantClient(url=settings.qdrant_url)
+qdrant = QdrantClient(location=settings.qdrant_url)
 
 
 def store_chunks(chunks: list[dict]) -> None:
