@@ -5,6 +5,8 @@ import json
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.core.config import settings
+from app.github.client import get_pr_files, post_review_comment
+from app.agent.reviewer import review_pr
 
 router = APIRouter()
 
@@ -16,6 +18,26 @@ def verify_signature(payload: bytes, signature: str) -> bool:
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(f"sha256={expected}", signature)
+
+def format_review(review) -> str:
+    lines = ["## AI PR Review\n"]
+    sections = {
+        "Logic Issues": review.logic_issues,
+        "Security Issues": review.security_issues,
+        "Code Quality": review.code_quality,
+        "Performance Issues": review.performance_issues,
+        "Test Coverage": review.test_coverage,
+    }
+    for title, findings in sections.items():
+        if not findings:
+            continue
+        lines.append(f"### {title}")
+        for f in findings:
+            lines.append(f"**[{f.severity.upper()}]** `{f.file}`")
+            lines.append(f"{f.description}")
+            lines.append(f"{f.suggestion}\n")
+    lines.append(f"---\n**Summary:** {review.summary}")
+    return "\n".join(lines)
 
 
 @router.post("/github")
@@ -41,5 +63,9 @@ async def github_webhook(
     pr_number = data["pull_request"]["number"]
     repo_full_name = data["repository"]["full_name"]
 
-    # 后续接入 review 逻辑
-    return {"status": "received", "pr": pr_number, "repo": repo_full_name}
+    files = get_pr_files(repo_full_name, pr_number)
+    review = review_pr(files)
+    comment = format_review(review)
+    post_review_comment(repo_full_name, pr_number, comment)
+
+    return {"status": "reviewed", "pr": pr_number}
