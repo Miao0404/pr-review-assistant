@@ -1,13 +1,13 @@
 from openai import OpenAI
 from app.core.config import settings
 
-client = OpenAI(api_key=settings.openai_api_key)
-
 
 def embed_chunks(chunks: list[dict]) -> list[dict]:
     """
     把每个代码块的内容转成向量，附加到原始数据上返回。
     """
+    client = OpenAI(api_key=settings.openai_api_key)
+
     texts = [chunk["content"] for chunk in chunks]
 
     response = client.embeddings.create(
