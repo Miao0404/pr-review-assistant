@@ -42,10 +42,18 @@ def format_review(review) -> str:
 
 
 def process_review(repo_full_name: str, pr_number: int):
-    files = get_pr_files(repo_full_name, pr_number)
-    review = review_pr(files)
-    comment = format_review(review)
-    post_review_comment(repo_full_name, pr_number, comment)
+    try:
+        files = get_pr_files(repo_full_name, pr_number)
+        review = review_pr(files)
+        comment = format_review(review)
+        post_review_comment(repo_full_name, pr_number, comment)
+    except Exception as e:
+        print(f"[ERROR] Review failed for PR #{pr_number}: {e}")
+        post_review_comment(
+            repo_full_name,
+            pr_number,
+            f"AI review failed: {e}",
+        )
 
 
 @router.post("/github")
