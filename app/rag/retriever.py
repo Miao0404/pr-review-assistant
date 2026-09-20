@@ -7,7 +7,6 @@ COLLECTION_NAME = "pr_chunks"
 VECTOR_SIZE = 1536
 
 qdrant = QdrantClient(location=settings.qdrant_url)
-#trigger test
 
 
 def store_chunks(chunks: list[dict]) -> None:
