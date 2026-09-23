@@ -44,7 +44,7 @@ def format_review(review) -> str:
 def process_review(repo_full_name: str, pr_number: int):
     try:
         files = get_pr_files(repo_full_name, pr_number)
-        review = review_pr(files)
+        review = review_pr(files, repo_full_name=repo_full_name, pr_number=pr_number)
         comment = format_review(review)
         post_review_comment(repo_full_name, pr_number, comment)
     except Exception as e:
