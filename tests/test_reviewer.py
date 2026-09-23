@@ -16,10 +16,12 @@ def make_mock_response(tool_input: dict) -> MagicMock:
     """构造一个假的 Anthropic API 响应对象。"""
     tool_use_block = MagicMock()
     tool_use_block.type = "tool_use"
+    tool_use_block.name = "submit_review"
     tool_use_block.input = tool_input
 
     response = MagicMock()
     response.content = [tool_use_block]
+    response.stop_reason = "tool_use"
     return response
 
 
