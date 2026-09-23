@@ -1,0 +1,61 @@
+name: Deploy to GKE
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: ai-job-assistant-503113
+  REGION: europe-north1
+  IMAGE: europe-north1-docker.pkg.dev/ai-job-assistant-503113/ai-job-assistant/ai-job-assistant
+  GKE_CLUSTER: ai-job-assistant-cluster
+  WORKLOAD_IDENTITY_PROVIDER: projects/183459704439/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  SERVICE_ACCOUNT: github-actions-sa@ai-job-assistant-503113.iam.gserviceaccount.com
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.REGION }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install ai-job-assistant ./helm/ai-job-assistant \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 5m
