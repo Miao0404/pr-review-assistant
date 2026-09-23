@@ -11,14 +11,14 @@ class Severity(str, Enum):
 class Finding(BaseModel):
     file: str
     description: str
-    severity: Severity
+    severity: Severity = Severity.medium
     suggestion: str
 
 
 class ReviewResult(BaseModel):
-    logic_issues: list[Finding]
-    security_issues: list[Finding]
-    code_quality: list[Finding]
-    performance_issues: list[Finding]
-    test_coverage: list[Finding]
-    summary: str
+    logic_issues: list[Finding] = []
+    security_issues: list[Finding] = []
+    code_quality: list[Finding] = []
+    performance_issues: list[Finding] = []
+    test_coverage: list[Finding] = []
+    summary: str = ""

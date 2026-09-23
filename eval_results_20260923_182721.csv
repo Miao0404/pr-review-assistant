@@ -1,0 +1,44 @@
+repo,pr_number,status,latency_s,total_findings,high_findings,coverage,false_positives,added_value,notes,error
+fastapi/fastapi,16394,ok,60.6,6,0,5,5,5,The agent's findings align with human reviewers' comments and add valuable insights regarding performance and memory management.,
+fastapi/fastapi,16393,ok,23.9,2,0,5,5,4,The agent accurately identified the key issues while providing valid points and did not raise any irrelevant concerns.,
+fastapi/fastapi,16392,ok,45.4,2,0,4,5,3,"The agent provided valuable insights on concurrency issues and coverage gaps, aligning well with human reviews.",
+fastapi/fastapi,16391,error,0,0,0,0,0,0,,Agent submitted empty review (no summary)
+fastapi/fastapi,16389,error,0,0,0,0,0,0,,Agent submitted empty review (no summary)
+fastapi/fastapi,16385,ok,16.4,2,0,4,5,4,The agent identified important edge cases related to the WebSocket close reason limit that were not mentioned by the human reviewer.,
+fastapi/fastapi,16386,ok,89.4,3,0,4,5,4,The agent provided valuable insights on test coverage and potential issues with duplicate headers.,
+psf/requests,7017,ok,8.6,0,0,5,5,5,The agent accurately identified both the trivial nature of the change and the inaccuracy of the previous Roman numeral.,
+psf/requests,6951,ok,12.5,1,0,4,5,3,The agent effectively identified key changes but missed restating the conciseness of the previous emphasis on respect for all contributions.,
+psf/requests,6961,ok,12.9,1,1,5,5,5,"The agent effectively identified the unrelated and malformed line added to the README, aligning well with human feedback.",
+psf/requests,6962,ok,37.6,6,0,5,5,5,The agent's output thoroughly covered all the critical issues raised by human reviewers.,
+psf/requests,6963,ok,32.8,2,0,4,5,4,The agent effectively identified critical regression issues while human reviewers acknowledged the presence of an adequate test.,
+psf/requests,6876,ok,29.4,3,0,4,5,4,The agent provided valuable insights but also raised points that were already addressed by human reviewers.,
+psf/requests,6829,error,0,0,0,0,0,0,,"5 validation errors for ReviewResult
+logic_issues
+  Input should be a valid list [type=list_type, input_value='\n<Finding>\n<file>docs/...ggestion>\n</Finding>\n', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+security_issues
+  Input should be a valid list [type=list_type, input_value='\n', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+code_quality
+  Input should be a valid list [type=list_type, input_value=""\n<Finding>\n<file>setup...ggestion>\n</Finding>\n"", input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+performance_issues
+  Input should be a valid list [type=list_type, input_value='\n', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+test_coverage
+  Input should be a valid list [type=list_type, input_value='\n', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type"
+encode/httpx,1,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages.7: The final block in an assistant message cannot be `thinking`.'}, 'request_id': 'req_011CfLgGKA3zrHBDeZjRorpT'}"
+encode/httpx,3783,ok,64.7,5,0,4,5,3,The agent highlighted relevant issues but also included some irrelevant findings.,
+encode/httpx,3748,ok,34.4,0,0,5,5,5,The agent provided a thorough analysis that addressed all potential issues and added valuable insights.,
+encode/httpx,3199,ok,121.3,9,0,4,5,4,The agent provided valuable insights but had some irrelevant findings and missed a few specific concerns raised by human reviewers.,
+encode/httpx,3656,ok,9.9,0,0,5,5,1,The agent effectively identified all typo corrections while not introducing any additional findings.,
+encode/httpx,3698,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLgg5FJmvMoAKJF8N8c2'}"
+encode/httpx,3465,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLggG6fz7WqLpKQ1ZLw5'}"
+pallets/flask,6137,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLggTifUv6jb2Xc2Ksht'}"
+pallets/flask,6153,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLgggKSrFBkgtKBHop83'}"
+pallets/flask,6150,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLggtRi6PdVHDvWw57ws'}"
+pallets/flask,6151,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLgh6bSsjwiVsU5KGy93'}"
+pallets/flask,6147,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLghMGzU44Xy3qyi1xFM'}"
+pallets/flask,6145,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLghYwU3AmCzVCFRJ2Na'}"
+pallets/flask,6162,error,0,0,0,0,0,0,,"Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CfLghkpqZFo76gvMgzjye'}"
