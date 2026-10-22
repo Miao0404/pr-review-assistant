@@ -64,7 +64,9 @@ To reproduce the results, follow the steps in the [experiment README](experiment
 One finding from a real run on `psf/requests#7502`:
 
 > **[MEDIUM] Logic issue** in `src/requests/models.py`
+> 
 > `hasattr(fp, 'read')` only checks that the attribute exists, not that it is callable. An object with a non-callable `read` attribute would now raise a confusing `TypeError` instead of reaching the existing error handling.
+> 
 > *Suggestion:* use `callable(getattr(fp, 'read', None))`.
 
 ## Known limitations
