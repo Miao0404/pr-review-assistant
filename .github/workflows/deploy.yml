@@ -1,8 +1,9 @@
 name: Deploy to Cloud Run
 
 on:
-  push:
-    branches: [main]
+  # Manual only: the Cloud Run project is no longer active.
+  # To deploy again, re-enable the GCP project and run this workflow from the Actions tab.
+  workflow_dispatch:
 
 jobs:
   deploy:
