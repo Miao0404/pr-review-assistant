@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+Claude 
+outputs/
+experiments/context_ablation/data_v1/
+experiments/context_ablation/data/blind_check.md

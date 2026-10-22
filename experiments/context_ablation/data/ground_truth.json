@@ -1,0 +1,221 @@
+{
+  "fastapi/fastapi#16043": [
+    {
+      "file": "tests/test_jsonable_encoder.py",
+      "description": "The test should not include exclude_unset and exclude_none parameters when testing exclude_defaults, as it may mislead future readers.",
+      "id": 1
+    }
+  ],
+  "fastapi/fastapi#15515": [
+    {
+      "file": "fastapi/sse.py",
+      "description": "The code comment explaining line splitting in _split_sse_lines is too long and should be shortened, with the detailed explanation moved to a review comment.",
+      "id": 1
+    },
+    {
+      "file": "tests/test_sse.py",
+      "description": "The tests for format_sse_event should be shortened and parameterized, and the Unicode character U+2028 should be represented by its code to avoid VSCode warnings.",
+      "id": 2
+    },
+    {
+      "file": "tests/test_sse.py",
+      "description": "A test case should be added to verify that format_sse_event correctly handles an empty data string by emitting a data line with an empty value.",
+      "id": 3
+    }
+  ],
+  "fastapi/fastapi#15101": [
+    {
+      "file": "fastapi/_compat/v2.py",
+      "description": "The code still relies on internal Pydantic functions (such as try_eval_type), which is undesirable and may cause maintenance issues.",
+      "id": 1
+    }
+  ],
+  "fastapi/fastapi#15077": [
+    {
+      "file": "tests/test_sse.py",
+      "description": "The variable 'c' should be renamed to 'client' in test functions for clarity.",
+      "id": 1
+    },
+    {
+      "file": "tests/test_sse.py",
+      "description": "The test endpoint 'default_app_stream' and 'default_parent_stream' should return the same data as 'stream_events_typed' for consistency.",
+      "id": 2
+    }
+  ],
+  "fastapi/fastapi#14874": [
+    {
+      "file": "tests/test_nested_annotated_in_sequence.py",
+      "description": "The code uses 'Annotated[Union[MaxSizedSet, None], Query()]' instead of the more idiomatic 'MaxSizedSet | None'.",
+      "id": 1
+    }
+  ],
+  "fastapi/fastapi#14828": [
+    {
+      "file": "tests/test_list_bytes_file_order_preserved_issue_14811.py",
+      "description": "The test function name should be changed to test_list_bytes_file_preserves_order for clarity and consistency.",
+      "id": 1
+    }
+  ],
+  "fastapi/fastapi#14809": [
+    {
+      "file": "scripts/mkdocs_hooks.py",
+      "description": "The translation banner should include a link to the original English version of the page.",
+      "id": 1
+    }
+  ],
+  "fastapi/fastapi#14616": [
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "description": "The type check for Json fields should use isinstance and can be simplified since FastAPI no longer supports Pydantic V1.",
+      "id": 1
+    },
+    {
+      "file": "fastapi/dependencies/utils.py",
+      "description": "The logic for handling _is_json_field in _get_multidict_value should be inverted to avoid unnecessary branching.",
+      "id": 2
+    }
+  ],
+  "fastapi/fastapi#14434": [
+    {
+      "file": "fastapi/routing.py",
+      "description": "There is an if condition for Python 3.13 or higher with an empty branch, which should be removed or handled properly.",
+      "id": 1
+    }
+  ],
+  "psf/requests#7502": [
+    {
+      "file": "tests/test_requests.py",
+      "description": "The test should only use 'files' and omit unnecessary 'data' or 'params' arguments to keep the test's intent clear.",
+      "id": 1
+    },
+    {
+      "file": "tests/test_requests.py",
+      "description": "There is redundancy between the two tests for file wrapper behavior and either one should be removed or the tests should be parameterized.",
+      "id": 2
+    }
+  ],
+  "psf/requests#7496": [
+    {
+      "file": "src/requests/compat.py",
+      "description": "The change causes type checking to use the wrong character detection library and loses type nuance for what is actually returned by _resolve_char_detection at runtime.",
+      "id": 1
+    }
+  ],
+  "psf/requests#7436": [
+    {
+      "file": "src/requests/_types.py",
+      "description": "The JsonType type alias should use Sequence instead of list to allow for more general read-based collections.",
+      "id": 1
+    }
+  ],
+  "psf/requests#7433": [
+    {
+      "file": "src/requests/models.py",
+      "description": "The code should assign the result of the iterable check to a variable for clarity before using it in the conditional.",
+      "id": 1
+    }
+  ],
+  "psf/requests#7431": [
+    {
+      "file": "src/requests/_types.py",
+      "description": "The new logic for handling MutableMapping in HeadersType and Request.headers is not covered by tests.",
+      "id": 1
+    },
+    {
+      "file": "src/requests/models.py",
+      "description": "The tests for the Request class's __init__ method have not been updated to cover the new HeadersType logic.",
+      "id": 2
+    }
+  ],
+  "psf/requests#6865": [
+    {
+      "file": "src/requests/sessions.py",
+      "description": "The warning about setting verify to False should remain attached to the rest of the False-related information to avoid it being overlooked.",
+      "id": 1
+    }
+  ],
+  "psf/requests#6757": [
+    {
+      "file": "src/requests/compat.py",
+      "description": "The code checks if the major version of urllib3 is 2 using string equality instead of converting to integer and using a greater-than-or-equal check, which could cause incorrect detection for future versions.",
+      "id": 1
+    }
+  ],
+  "psf/requests#6724": [
+    {
+      "file": "src/requests/adapters.py",
+      "description": "The logic for handling verify=True may be missing a necessary condition or case.",
+      "id": 1
+    }
+  ],
+  "psf/requests#6710": [
+    {
+      "file": "src/requests/adapters.py",
+      "description": "The deprecated method should emit a DeprecationWarning when used.",
+      "id": 1
+    }
+  ],
+  "psf/requests#6702": [
+    {
+      "file": "src/requests/compat.py",
+      "description": "The code should try to import the character detection library that is required or preferred first, rather than trying them in a fixed order.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#3371": [
+    {
+      "file": "tests/models/test_url.py",
+      "description": "The userinfo field may incorrectly contain a trailing percent sign, suggesting partial or incorrect percent-escaping.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#3312": [
+    {
+      "file": "tests/test_utils.py",
+      "description": "The tests for header value normalization should be located in tests/client/test_headers.py and should test against the public httpx.Header API instead of the internal normalize_header_value function.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#3250": [
+    {
+      "file": "httpx/_urlparse.py",
+      "description": "The code unnecessarily materializes a list to find the first non-printable ASCII character, which could be done lazily to improve performance.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#3245": [
+    {
+      "file": "httpx/_api.py",
+      "description": "The import of URL from ._urls could be moved under typing.TYPE_CHECKING to avoid unnecessary runtime import.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#3045": [
+    {
+      "file": "httpx/_auth.py",
+      "description": "The code incorrectly omits HA1 from the digest_data list when qop is None, which does not match the expected behavior for RFC 2069 digest authentication.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#2990": [
+    {
+      "file": "httpx/_urlparse.py",
+      "description": "Unit tests should be added for the quote function rather than relying solely on tests of httpx.URL.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#2911": [
+    {
+      "file": "httpx/_models.py",
+      "description": "The new implementation of the json() method may not handle non-UTF charsets as well as the previous version, which used self.text for decoding.",
+      "id": 1
+    }
+  ],
+  "encode/httpx#2909": [
+    {
+      "file": "httpx/_multipart.py",
+      "description": "The code for generating a hex string from random bytes can be simplified by using os.urandom(16).hex() instead of a manual join and format.",
+      "id": 1
+    }
+  ]
+}

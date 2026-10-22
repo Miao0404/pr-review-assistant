@@ -1,0 +1,1102 @@
+[
+  {
+    "key": "fastapi/fastapi#16043",
+    "repo": "fastapi/fastapi",
+    "number": 16043,
+    "title": "🐛 Fix `exclude_defaults` not propagated to dict keys and values in `jsonable_encoder`",
+    "created_at": "2026-07-24T00:16:10+00:00",
+    "head_sha": "964423a161071eee9ebb354bc0934d63a314f25b",
+    "files": [
+      {
+        "filename": "fastapi/encoders.py",
+        "status": "modified",
+        "patch": "@@ -299,6 +299,7 @@ def jsonable_encoder(\n                     key,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n+                    exclude_defaults=exclude_defaults,\n                     exclude_none=exclude_none,\n                     custom_encoder=custom_encoder,\n                     sqlalchemy_safe=sqlalchemy_safe,\n@@ -307,6 +308,7 @@ def jsonable_encoder(\n                     value,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n+                    exclude_defaults=exclude_defaults,\n                     exclude_none=exclude_none,\n                     custom_encoder=custom_encoder,\n                     sqlalchemy_safe=sqlalchemy_safe,"
+      },
+      {
+        "filename": "tests/test_jsonable_encoder.py",
+        "status": "modified",
+        "patch": "@@ -202,6 +202,20 @@ def test_encode_model_with_default():\n     }\n \n \n+def test_encode_model_with_default_in_dict_and_list():\n+    model = ModelWithDefault(foo=\"foo\", bar=\"bar\")\n+    assert jsonable_encoder([model], exclude_defaults=True) == [{\"foo\": \"foo\"}]\n+    assert jsonable_encoder({\"key\": model}, exclude_defaults=True) == {\n+        \"key\": {\"foo\": \"foo\"}\n+    }\n+    assert jsonable_encoder({\"key\": [model]}, exclude_defaults=True) == {\n+        \"key\": [{\"foo\": \"foo\"}]\n+    }\n+    assert jsonable_encoder({\"key\": model}, exclude_unset=True, exclude_none=True) == {\n+        \"key\": {\"foo\": \"foo\", \"bar\": \"bar\"}\n+    }\n+\n+\n def test_custom_encoders():\n     class safe_datetime(datetime):\n         pass"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_jsonable_encoder.py",
+        "line": 216,
+        "body": "```suggestion\n    assert jsonable_encoder({\"key\": model}) == {\"key\": {\"foo\": \"foo\", \"bar\": \"bar\"}}\n```\n\nWe are testing `exclude_defaults` here. No need to add `exclude_unset` and `exclude_none` - it will only mislead future readers",
+        "diff_hunk": "+def test_encode_model_with_default_in_dict_and_list():\n+    model = ModelWithDefault(foo=\"foo\", bar=\"bar\")\n+    assert jsonable_encoder([model], exclude_defaults=True) == [{\"foo\": \"foo\"}]\n+    assert jsonable_encoder({\"key\": model}, exclude_defaults=True) == {\n+        \"key\": {\"foo\": \"foo\"}\n+    }\n+    assert jsonable_encoder({\"key\": [model]}, exclude_defaults=True) == {\n+        \"key\": [{\"foo\": \"foo\"}]\n+    }\n+    assert jsonable_encoder({\"key\": model}, exclude_unset=True, exclude_none=True) == {\n+        \"key\": {\"foo\": \"foo\", \"bar\": \"bar\"}\n+    }",
+        "created_at": "2026-07-24T06:07:29+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "fastapi/encoders.py",
+        "line": 302,
+        "body": "Just a note, no need to change this for now.\r\nPassing it to the recursive call for dict keys is not strictly needed - currently tests doesn't cover this and I couldn't come up with use case for this.\r\nBut we can still keep it just for the symmetry",
+        "diff_hunk": "@@ -299,6 +299,7 @@ def jsonable_encoder(\n                     key,\n                     by_alias=by_alias,\n                     exclude_unset=exclude_unset,\n+                    exclude_defaults=exclude_defaults,",
+        "created_at": "2026-07-24T06:21:40+00:00"
+      }
+    ],
+    "final_sha": "cc0fe856a426693faa750e29d1c3b73d61ec1130",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#15515",
+    "repo": "fastapi/fastapi",
+    "number": 15515,
+    "title": "🐛 Fix line splitting in `format_sse_event` to comply with SSE spec",
+    "created_at": "2026-05-14T07:42:17+00:00",
+    "head_sha": "29112d6d2b8f26b4a476c49731808834818cdd00",
+    "files": [
+      {
+        "filename": "fastapi/sse.py",
+        "status": "modified",
+        "patch": "@@ -143,6 +143,16 @@ def _check_data_exclusive(self) -> \"ServerSentEvent\":\n         return self\n \n \n+def _split_sse_lines(value: str) -> list[str]:\n+    # SSE recognizes only `\\n`, `\\r\\n`, and `\\r` as line terminators\n+    # (https://html.spec.whatwg.org/multipage/server-sent-events.html).\n+    # `str.splitlines()` is wrong on two counts: it treats 8 extra characters\n+    # (`\\v`, `\\f`, `\\x1c`-`\\x1e`, `\\x85`, U+2028, U+2029) as line breaks, and\n+    # it drops a trailing empty string, so e.g. `\"hello\\n\"` would emit only\n+    # one `data:` line instead of two.\n+    return value.replace(\"\\r\\n\", \"\\n\").replace(\"\\r\", \"\\n\").split(\"\\n\")\n+\n+\n def format_sse_event(\n     *,\n     data_str: Annotated[\n@@ -193,14 +203,14 @@ def format_sse_event(\n     lines: list[str] = []\n \n     if comment is not None:\n-        for line in comment.splitlines():\n+        for line in _split_sse_lines(comment):\n             lines.append(f\": {line}\")\n \n     if event is not None:\n         lines.append(f\"event: {event}\")\n \n     if data_str is not None:\n-        for line in data_str.splitlines():\n+        for line in _split_sse_lines(data_str):\n             lines.append(f\"data: {line}\")\n \n     if id is not None:"
+      },
+      {
+        "filename": "tests/test_sse.py",
+        "status": "modified",
+        "patch": "@@ -6,7 +6,7 @@\n import pytest\n from fastapi import APIRouter, FastAPI\n from fastapi.responses import EventSourceResponse\n-from fastapi.sse import ServerSentEvent\n+from fastapi.sse import ServerSentEvent, format_sse_event\n from fastapi.testclient import TestClient\n from pydantic import BaseModel\n \n@@ -316,3 +316,54 @@ def test_no_keepalive_when_fast(client: TestClient):\n     assert response.status_code == 200\n     # KEEPALIVE_COMMENT is \": ping\\n\\n\".\n     assert \": ping\\n\" not in response.text\n+\n+\n+# format_sse_event line-splitting tests\n+#\n+# These cover the splitlines() footgun: it drops trailing empty strings and\n+# treats 8 extra characters as line breaks (vertical tab, form feed, FS/GS/RS,\n+# NEL, LINE SEPARATOR, PARAGRAPH SEPARATOR). SSE only recognizes \\n, \\r\\n, \\r.\n+\n+\n+def test_format_sse_event_preserves_trailing_newline():\n+    # \"Hello\\n\" should produce TWO data lines: \"Hello\" and \"\" (the trailing\n+    # empty line). Pre-fix, splitlines() ate the trailing empty string.\n+    assert format_sse_event(data_str=\"Hello\\n\") == b\"data: Hello\\ndata: \\n\\n\"\n+\n+\n+def test_format_sse_event_preserves_trailing_double_newline():\n+    assert format_sse_event(data_str=\"Hello\\n\\n\") == b\"data: Hello\\ndata: \\ndata: \\n\\n\"\n+\n+\n+def test_format_sse_event_single_newline_data():\n+    assert format_sse_event(data_str=\"\\n\") == b\"data: \\ndata: \\n\\n\"\n+\n+\n+def test_format_sse_event_crlf_normalizes_to_lf():\n+    # \\r\\n is a valid SSE line terminator and should be normalized to \\n\n+    # for output, producing the same two data lines as \\n input would.\n+    assert (\n+        format_sse_event(data_str=\"Hello\\r\\nWorld\") == b\"data: Hello\\ndata: World\\n\\n\"\n+    )\n+\n+\n+def test_format_sse_event_bare_cr_treated_as_line_break():\n+    # Lone \\r is also a valid SSE line terminator per the spec.\n+    assert format_sse_event(data_str=\"Hello\\rWorld\") == b\"data: Hello\\ndata: World\\n\\n\"\n+\n+\n+def test_format_sse_event_unicode_line_separator_not_split():\n+    # U+2028 LINE SEPARATOR is treated as a line break by str.splitlines()\n+    # but is NOT a line terminator in the SSE spec. It must stay inside the\n+    # data payload, not be promoted to a new \"data:\" line.\n+    assert format_sse_event(data_str=\"A B\") == \"data: A B\\n\\n\".encode()\n+\n+\n+def test_format_sse_event_vertical_tab_not_split():\n+    # \\v is treated as a line break by splitlines() but not by SSE.\n+    assert format_sse_event(data_str=\"A\\vB\") == b\"data: A\\x0bB\\n\\n\"\n+\n+\n+def test_format_sse_event_comment_preserves_trailing_newline():\n+    # Same bug existed in the comment branch.\n+    assert format_sse_event(comment=\"hi\\n\") == b\": hi\\n: \\n\\n\""
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "fastapi/sse.py",
+        "line": 152,
+        "body": "```suggestion\n```\n\nI think we should shorten code comment. You can add this long explanation as a review comment",
+        "diff_hunk": "@@ -143,6 +143,16 @@ def _check_data_exclusive(self) -> \"ServerSentEvent\":\n         return self\n \n \n+def _split_sse_lines(value: str) -> list[str]:\n+    # SSE recognizes only `\\n`, `\\r\\n`, and `\\r` as line terminators\n+    # (https://html.spec.whatwg.org/multipage/server-sent-events.html).\n+    # `str.splitlines()` is wrong on two counts: it treats 8 extra characters\n+    # (`\\v`, `\\f`, `\\x1c`-`\\x1e`, `\\x85`, U+2028, U+2029) as line breaks, and\n+    # it drops a trailing empty string, so e.g. `\"hello\\n\"` would emit only\n+    # one `data:` line instead of two.",
+        "created_at": "2026-05-18T20:28:03+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_sse.py",
+        "line": 369,
+        "body": "```suggestion\n@pytest.mark.parametrize(\n    (\"data\", \"expected_result\"),\n    [\n        (\"Hello\\n\", b\"data: Hello\\ndata: \\n\\n\"),\n        (\"Hello\\n\\n\", b\"data: Hello\\ndata: \\ndata: \\n\\n\"),\n        (\"\\n\", b\"data: \\ndata: \\n\\n\"),\n        (\"Hello\\r\\nWorld\", b\"data: Hello\\ndata: World\\n\\n\"),\n        (\"Hello\\rWorld\", b\"data: Hello\\ndata: World\\n\\n\"),\n        (\"A\\u2028B\", \"data: A\\u2028B\\n\\n\".encode()),\n        (\"A\\vB\", b\"data: A\\x0bB\\n\\n\"),\n    ],\n)\ndef test_format_sse_event_splitlines_behavior_in_data(\n    data: str, expected_result: bytes\n) -> None:\n    assert format_sse_event(data_str=data) == expected_result\n\n\ndef test_format_sse_event_splitlines_behavior_in_comment():\n    assert format_sse_event(comment=\"hi\\n\") == b\": hi\\n: \\n\\n\"\n\n```\n\nI would shorten tests this way.\nAlso, we should replace `\\u2028B` with its code (as it's done in suggested changes) - otherwise VSCode shows warning when I open this file (see in the details)\n\n<details>\n\n<img width=\"644\" height=\"235\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/15d1450b-99ef-4fe7-b8bb-307f6f4c5546\" />\n\n</details>",
+        "diff_hunk": "B\") == \"data: A\nB\\n\\n\".encode()\n+\n+\n+def test_format_sse_event_vertical_tab_not_split():\n+    # \\v is treated as a line break by splitlines() but not by SSE.\n+    assert format_sse_event(data_str=\"A\\vB\") == b\"data: A\\x0bB\\n\\n\"\n+\n+\n+def test_format_sse_event_comment_preserves_trailing_newline():\n+    # Same bug existed in the comment branch.\n+    assert format_sse_event(comment=\"hi\\n\") == b\": hi\\n: \\n\\n\"",
+        "created_at": "2026-05-18T20:40:24+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_sse.py",
+        "line": 369,
+        "body": "Let's also add the test case with empty data string from PR https://github.com/fastapi/fastapi/pull/15618:\n\n```py\ndef test_format_sse_event_keeps_empty_data_line():\n    payload = format_sse_event(data_str=\"\")\n    assert payload == b\"data: \\n\\n\"\n```",
+        "diff_hunk": "B\") == \"data: A\nB\\n\\n\".encode()\n+\n+\n+def test_format_sse_event_vertical_tab_not_split():\n+    # \\v is treated as a line break by splitlines() but not by SSE.\n+    assert format_sse_event(data_str=\"A\\vB\") == b\"data: A\\x0bB\\n\\n\"\n+\n+\n+def test_format_sse_event_comment_preserves_trailing_newline():\n+    # Same bug existed in the comment branch.\n+    assert format_sse_event(comment=\"hi\\n\") == b\": hi\\n: \\n\\n\"",
+        "created_at": "2026-05-27T13:41:23+00:00"
+      }
+    ],
+    "final_sha": "871cfe7ea8cb922902ed9e140ec40db2722caf4a",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#15101",
+    "repo": "fastapi/fastapi",
+    "number": 15101,
+    "title": "⬆️ Update Pydantic v2 code to address deprecations",
+    "created_at": "2026-03-12T21:13:40+00:00",
+    "head_sha": "548d002bf8d71690f877d0ffb6dbf5af362254a7",
+    "files": [
+      {
+        "filename": "fastapi/_compat/__init__.py",
+        "status": "modified",
+        "patch": "@@ -26,7 +26,7 @@\n from .v2 import Url as Url\n from .v2 import copy_field_info as copy_field_info\n from .v2 import create_body_model as create_body_model\n-from .v2 import evaluate_forwardref as evaluate_forwardref  # ty: ignore[deprecated]\n+from .v2 import evaluate_forwardref as evaluate_forwardref\n from .v2 import get_cached_model_fields as get_cached_model_fields\n from .v2 import get_definitions as get_definitions\n from .v2 import get_flat_models_from_fields as get_flat_models_from_fields"
+      },
+      {
+        "filename": "fastapi/_compat/v2.py",
+        "status": "modified",
+        "patch": "@@ -22,10 +22,10 @@\n from pydantic import PydanticSchemaGenerationError as PydanticSchemaGenerationError\n from pydantic import PydanticUndefinedAnnotation as PydanticUndefinedAnnotation\n from pydantic import ValidationError as ValidationError\n+from pydantic._internal import _typing_extra as _pydantic_typing_extra\n from pydantic._internal._schema_generation_shared import (  # type: ignore[attr-defined]  # ty: ignore[unused-ignore-comment]\n     GetJsonSchemaHandler as GetJsonSchemaHandler,\n )\n-from pydantic._internal._typing_extra import eval_type_lenient  # ty: ignore[deprecated]\n from pydantic.fields import FieldInfo as FieldInfo\n from pydantic.json_schema import GenerateJsonSchema as _GenerateJsonSchema\n from pydantic.json_schema import JsonSchemaValue as JsonSchemaValue\n@@ -38,7 +38,20 @@\n \n RequiredParam = PydanticUndefined\n Undefined = PydanticUndefined\n-evaluate_forwardref = eval_type_lenient  # ty: ignore[deprecated]\n+\n+\n+def evaluate_forwardref(\n+    value: Any,\n+    globalns: dict[str, Any] | None = None,\n+    localns: dict[str, Any] | None = None,\n+) -> Any:\n+    # eval_type_lenient has been deprecated since Pydantic v2.10.0b1 (PR #10530)\n+    try_eval_type = getattr(_pydantic_typing_extra, \"try_eval_type\", None)\n+    if try_eval_type is not None:\n+        return try_eval_type(value, globalns, localns)[0]\n+    return _pydantic_typing_extra.eval_type_lenient(  # ty: ignore[deprecated]\n+        value, globalns, localns\n+    )  # pragma: no cover\n \n \n class GenerateJsonSchema(_GenerateJsonSchema):"
+      },
+      {
+        "filename": "fastapi/dependencies/utils.py",
+        "status": "modified",
+        "patch": "@@ -33,7 +33,7 @@\n     Undefined,\n     copy_field_info,\n     create_body_model,\n-    evaluate_forwardref,  # ty: ignore[deprecated]\n+    evaluate_forwardref,\n     field_annotation_is_scalar,\n     field_annotation_is_scalar_sequence,\n     field_annotation_is_sequence,\n@@ -245,7 +245,7 @@ def get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:\n def get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:\n     if isinstance(annotation, str):\n         annotation = ForwardRef(annotation)\n-        annotation = evaluate_forwardref(annotation, globalns, globalns)  # ty: ignore[deprecated]\n+        annotation = evaluate_forwardref(annotation, globalns, globalns)\n         if annotation is type(None):\n             return None\n     return annotation"
+      },
+      {
+        "filename": "fastapi/encoders.py",
+        "status": "modified",
+        "patch": "@@ -22,7 +22,6 @@\n from fastapi.exceptions import PydanticV1NotSupportedError\n from fastapi.types import IncEx\n from pydantic import BaseModel\n-from pydantic.color import Color  # ty: ignore[deprecated]\n from pydantic.networks import AnyUrl, NameEmail\n from pydantic.types import SecretBytes, SecretStr\n from pydantic_core import PydanticUndefinedType\n@@ -32,6 +31,23 @@\n     is_pydantic_v1_model_instance,\n )\n \n+try:\n+    # pydantic.color.Color is deprecated since v2.0b3, but supporting for bwd-compat\n+    from pydantic.color import Color  # ty: ignore[deprecated]\n+except ImportError:  # pragma: no cover\n+\n+    class Color:  # type: ignore[no-redef]  # ty: ignore[unused-ignore-comment]\n+        pass\n+\n+\n+try:\n+    # Supporting the new Color format for newer versions of Pydantic\n+    from pydantic_extra_types.color import Color as PyExtraColor\n+except ImportError:  # pragma: no cover\n+\n+    class PyExtraColor:  # type: ignore[no-redef]  # ty: ignore[unused-ignore-comment]\n+        pass\n+\n \n # Taken from Pydantic v1 as is\n def isoformat(o: datetime.date | datetime.time) -> str:\n@@ -67,7 +83,8 @@ def decimal_encoder(dec_value: Decimal) -> int | float:\n \n ENCODERS_BY_TYPE: dict[type[Any], Callable[[Any], Any]] = {\n     bytes: lambda o: o.decode(),\n-    Color: str,  # ty: ignore[deprecated]\n+    Color: str,\n+    PyExtraColor: str,\n     datetime.date: isoformat,\n     datetime.datetime: isoformat,\n     datetime.time: isoformat,"
+      },
+      {
+        "filename": "tests/test_jsonable_encoder.py",
+        "status": "modified",
+        "patch": "@@ -311,3 +311,21 @@ class Model(BaseModel):\n def test_encode_pydantic_undefined():\n     data = {\"value\": Undefined}\n     assert jsonable_encoder(data) == {\"value\": None}\n+\n+\n+@pytest.mark.filterwarnings(\"ignore::DeprecationWarning\")\n+@pytest.mark.parametrize(\n+    \"module_path\",\n+    [\n+        pytest.param(\"pydantic.color\"),\n+        pytest.param(\"pydantic_extra_types.color\"),\n+    ],\n+)\n+def test_encode_color(module_path):\n+    try:\n+        Color = __import__(module_path, fromlist=[\"Color\"]).Color\n+    except ImportError:  # pragma: no cover\n+        pytest.skip(f\"{module_path} not available\")\n+\n+    data = {\"color\": Color(\"blue\")}\n+    assert jsonable_encoder(data) == {\"color\": \"blue\"}"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "fastapi/_compat/v2.py",
+        "line": 48,
+        "body": "As an alternative, we can use `try...except`:\n\n```py\n    try:    \n        return _pydantic_typing_extra.try_eval_type(value, globalns, localns)[0]\n    except AttrbuteError:\n        return _pydantic_typing_extra.eval_type_lenient(  # ty: ignore[deprecated]\n            value, globalns, localns\n        )  # pragma: no cover\n```\nOr move this to module level, and only use it inside `evaluate_forwardref` (so that `evaluate_forwardref` would make it typed).\n\nIt might also be a bit faster (but it's only used at app stratup, so maybe not as important)",
+        "diff_hunk": " \n RequiredParam = PydanticUndefined\n Undefined = PydanticUndefined\n-evaluate_forwardref = eval_type_lenient  # ty: ignore[deprecated]\n+\n+\n+def evaluate_forwardref(\n+    value: Any,\n+    globalns: dict[str, Any] | None = None,\n+    localns: dict[str, Any] | None = None,\n+) -> Any:\n+    # eval_type_lenient has been deprecated since Pydantic v2.10.0b1 (PR #10530)",
+        "created_at": "2026-03-20T16:34:27+00:00"
+      },
+      {
+        "author": "Viicos",
+        "path": "fastapi/_compat/v2.py",
+        "line": 48,
+        "body": "I found it a bit unfortunate that this PR still relies on an internal function.. The only reason I kept `eval_type_lenient()` in Pydantic was because FastAPI was using it, and now the same issue exists with `try_eval_type()`.",
+        "diff_hunk": " \n RequiredParam = PydanticUndefined\n Undefined = PydanticUndefined\n-evaluate_forwardref = eval_type_lenient  # ty: ignore[deprecated]\n+\n+\n+def evaluate_forwardref(\n+    value: Any,\n+    globalns: dict[str, Any] | None = None,\n+    localns: dict[str, Any] | None = None,\n+) -> Any:\n+    # eval_type_lenient has been deprecated since Pydantic v2.10.0b1 (PR #10530)",
+        "created_at": "2026-05-04T17:38:44+00:00"
+      },
+      {
+        "author": "Viicos",
+        "path": "fastapi/_compat/v2.py",
+        "line": 48,
+        "body": "I think it might be worth solving this cleanly, that is by first having the ability to do such evaluations using the stdlib. I proposed https://discuss.python.org/t/100698 a while ago, I'll try to continue working on it. Then we could see how can this be used in FastAPI/Pydantic!",
+        "diff_hunk": " \n RequiredParam = PydanticUndefined\n Undefined = PydanticUndefined\n-evaluate_forwardref = eval_type_lenient  # ty: ignore[deprecated]\n+\n+\n+def evaluate_forwardref(\n+    value: Any,\n+    globalns: dict[str, Any] | None = None,\n+    localns: dict[str, Any] | None = None,\n+) -> Any:\n+    # eval_type_lenient has been deprecated since Pydantic v2.10.0b1 (PR #10530)",
+        "created_at": "2026-05-05T10:04:50+00:00"
+      }
+    ],
+    "final_sha": "e0e25685acdda24e2a36faf7d435c50295fe0807",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#15077",
+    "repo": "fastapi/fastapi",
+    "number": 15077,
+    "title": "🐛 Fix stream item type lost when using `include_router()`",
+    "created_at": "2026-03-08T16:39:54+00:00",
+    "head_sha": "0730499a552eb925c292948e65147697ac29a14d",
+    "files": [
+      {
+        "filename": "fastapi/routing.py",
+        "status": "modified",
+        "patch": "@@ -836,10 +836,11 @@ def __init__(\n         generate_unique_id_function: Callable[[\"APIRoute\"], str]\n         | DefaultPlaceholder = Default(generate_unique_id),\n         strict_content_type: bool | DefaultPlaceholder = Default(True),\n+        stream_item_type: Any | None = None,\n     ) -> None:\n         self.path = path\n         self.endpoint = endpoint\n-        self.stream_item_type: Any | None = None\n+        self.stream_item_type: Any | None = stream_item_type\n         if isinstance(response_model, DefaultPlaceholder):\n             return_annotation = get_typed_return_annotation(endpoint)\n             if lenient_issubclass(return_annotation, Response):\n@@ -1360,6 +1361,7 @@ def add_api_route(\n         generate_unique_id_function: Callable[[APIRoute], str]\n         | DefaultPlaceholder = Default(generate_unique_id),\n         strict_content_type: bool | DefaultPlaceholder = Default(True),\n+        stream_item_type: Any | None = None,\n     ) -> None:\n         route_class = route_class_override or self.route_class\n         responses = responses or {}\n@@ -1409,6 +1411,7 @@ def add_api_route(\n             strict_content_type=get_value_or_default(\n                 strict_content_type, self.strict_content_type\n             ),\n+            stream_item_type=stream_item_type,\n         )\n         self.routes.append(route)\n \n@@ -1789,6 +1792,7 @@ def read_users():\n                         router.strict_content_type,\n                         self.strict_content_type,\n                     ),\n+                    stream_item_type=route.stream_item_type,\n                 )\n             elif isinstance(route, routing.Route):\n                 methods = list(route.methods or [])"
+      },
+      {
+        "filename": "tests/test_sse.py",
+        "status": "modified",
+        "patch": "@@ -96,6 +96,12 @@ async def stream_events():\n     yield {\"msg\": \"world\"}\n \n \n+@router.get(\"/events-typed\", response_class=EventSourceResponse)\n+async def stream_events_typed() -> AsyncIterable[Item]:\n+    for item in items:\n+        yield item\n+\n+\n app.include_router(router, prefix=\"/api\")\n \n \n@@ -265,6 +271,45 @@ def test_sse_on_router_included_in_app(client: TestClient):\n     assert len(data_lines) == 2\n \n \n+def test_sse_router_typed_stream(client: TestClient):\n+    response = client.get(\"/api/events-typed\")\n+    assert response.status_code == 200\n+    assert response.headers[\"content-type\"] == \"text/event-stream; charset=utf-8\"\n+    data_lines = [\n+        line for line in response.text.strip().split(\"\\n\") if line.startswith(\"data: \")\n+    ]\n+    assert len(data_lines) == 3\n+\n+\n+def test_sse_router_typed_openapi_schema(client: TestClient):\n+    \"\"\"Typed SSE endpoint on a router should preserve itemSchema with contentSchema.\"\"\"\n+    response = client.get(\"/openapi.json\")\n+    assert response.status_code == 200\n+    paths = response.json()[\"paths\"]\n+    sse_response = paths[\"/api/events-typed\"][\"get\"][\"responses\"][\"200\"]\n+    assert sse_response == {\n+        \"description\": \"Successful Response\",\n+        \"content\": {\n+            \"text/event-stream\": {\n+                \"itemSchema\": {\n+                    \"type\": \"object\",\n+                    \"properties\": {\n+                        \"data\": {\n+                            \"type\": \"string\",\n+                            \"contentMediaType\": \"application/json\",\n+                            \"contentSchema\": {\"$ref\": \"#/components/schemas/Item\"},\n+                        },\n+                        \"event\": {\"type\": \"string\"},\n+                        \"id\": {\"type\": \"string\"},\n+                        \"retry\": {\"type\": \"integer\", \"minimum\": 0},\n+                    },\n+                    \"required\": [\"data\"],\n+                }\n+            }\n+        },\n+    }\n+\n+\n # Keepalive ping tests\n \n \n@@ -316,3 +361,97 @@ def test_no_keepalive_when_fast(client: TestClient):\n     assert response.status_code == 200\n     # KEEPALIVE_COMMENT is \": ping\\n\\n\".\n     assert \": ping\\n\" not in response.text\n+\n+\n+# default_response_class tests\n+\n+\n+sse_schema_response = {\n+    \"description\": \"Successful Response\",\n+    \"content\": {\n+        \"text/event-stream\": {\n+            \"itemSchema\": {\n+                \"type\": \"object\",\n+                \"properties\": {\n+                    \"data\": {\n+                        \"type\": \"string\",\n+                        \"contentMediaType\": \"application/json\",\n+                        \"contentSchema\": {\"$ref\": \"#/components/schemas/Item\"},\n+                    },\n+                    \"event\": {\"type\": \"string\"},\n+                    \"id\": {\"type\": \"string\"},\n+                    \"retry\": {\"type\": \"integer\", \"minimum\": 0},\n+                },\n+                \"required\": [\"data\"],\n+            }\n+        }\n+    },\n+}\n+\n+\n+# default_response_class on app\n+\n+default_app_app = FastAPI(default_response_class=EventSourceResponse)\n+default_app_router = APIRouter()\n+\n+\n+@default_app_router.get(\"/stream\")\n+async def default_app_stream() -> AsyncIterable[Item]:\n+    yield items[0]\n+\n+\n+default_app_app.include_router(default_app_router, prefix=\"/api\")\n+\n+\n+def test_default_response_class_on_app_stream():\n+    with TestClient(default_app_app) as c:\n+        response = c.get(\"/api/stream\")\n+    assert response.status_code == 200\n+    assert response.headers[\"content-type\"] == \"text/event-stream; charset=utf-8\"\n+    data_lines = [\n+        line for line in response.text.strip().split(\"\\n\") if line.startswith(\"data: \")\n+    ]\n+    assert len(data_lines) == 1\n+\n+\n+def test_default_response_class_on_app_openapi_schema():\n+    with TestClient(default_app_app) as c:\n+        response = c.get(\"/openapi.json\")\n+    assert response.status_code == 200\n+    paths = response.json()[\"paths\"]\n+    assert paths[\"/api/stream\"][\"get\"][\"responses\"][\"200\"] == sse_schema_response\n+\n+\n+# default_response_class on parent router\n+\n+default_parent_app = FastAPI()\n+parent_router = APIRouter(default_response_class=EventSourceResponse)\n+child_router = APIRouter()\n+\n+\n+@child_router.get(\"/stream\")\n+async def default_parent_stream() -> AsyncIterable[Item]:\n+    yield items[0]\n+\n+\n+parent_router.include_router(child_router)\n+default_parent_app.include_router(parent_router, prefix=\"/api\")\n+\n+\n+def test_default_response_class_on_parent_router_stream():\n+    with TestClient(default_parent_app) as c:\n+        response = c.get(\"/api/stream\")\n+    assert response.status_code == 200\n+    assert response.headers[\"content-type\"] == \"text/event-stream; charset=utf-8\"\n+    data_lines = [\n+        line for line in response.text.strip().split(\"\\n\") if line.startswith(\"data: \")\n+    ]\n+    assert len(data_lines) == 1\n+\n+\n+def test_default_response_class_on_parent_router_openapi_schema():\n+    with TestClient(default_parent_app) as c:\n+        response = c.get(\"/openapi.json\")\n+    assert response.status_code == 200\n+    paths = response.json()[\"paths\"]\n+    assert paths[\"/api/stream\"][\"get\"][\"responses\"][\"200\"] == sse_schema_response"
+      },
+      {
+        "filename": "tests/test_stream_bare_type.py",
+        "status": "modified",
+        "patch": "@@ -1,7 +1,7 @@\n import json\n from typing import AsyncIterable, Iterable  # noqa: UP035 to test coverage\n \n-from fastapi import FastAPI\n+from fastapi import APIRouter, FastAPI\n from fastapi.testclient import TestClient\n from pydantic import BaseModel\n \n@@ -23,6 +23,16 @@ def stream_bare_sync() -> Iterable:\n     yield {\"name\": \"bar\"}\n \n \n+router = APIRouter()\n+\n+\n+@router.get(\"/events-jsonl\")\n+async def stream_events_jsonl() -> AsyncIterable[Item]:\n+    yield Item(name=\"foo\")\n+\n+\n+app.include_router(router, prefix=\"/api\")\n+\n client = TestClient(app)\n \n \n@@ -40,3 +50,24 @@ def test_stream_bare_sync_iterable():\n     assert response.headers[\"content-type\"] == \"application/jsonl\"\n     lines = [json.loads(line) for line in response.text.strip().splitlines()]\n     assert lines == [{\"name\": \"bar\"}]\n+\n+\n+def test_jsonl_router_typed_stream():\n+    response = client.get(\"/api/events-jsonl\")\n+    assert response.status_code == 200\n+    assert response.headers[\"content-type\"] == \"application/jsonl\"\n+    lines = [json.loads(line) for line in response.text.strip().splitlines()]\n+    assert lines == [{\"name\": \"foo\"}]\n+\n+\n+def test_jsonl_router_typed_openapi_schema():\n+    response = client.get(\"/openapi.json\")\n+    assert response.status_code == 200\n+    paths = response.json()[\"paths\"]\n+    jsonl_response = paths[\"/api/events-jsonl\"][\"get\"][\"responses\"][\"200\"]\n+    assert jsonl_response == {\n+        \"description\": \"Successful Response\",\n+        \"content\": {\n+            \"application/jsonl\": {\"itemSchema\": {\"$ref\": \"#/components/schemas/Item\"}}\n+        },\n+    }"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_sse.py",
+        "line": 408,
+        "body": "I would rename `c` to `client` here and in other test functions.\nAlso, you can actually get OpenAPI schema directly as `default_app_app.openapi()`",
+        "diff_hunk": "+\n+@default_app_router.get(\"/stream\")\n+async def default_app_stream() -> AsyncIterable[Item]:\n+    yield items[0]\n+\n+\n+default_app_app.include_router(default_app_router, prefix=\"/api\")\n+\n+\n+def test_default_response_class_on_app_stream():\n+    with TestClient(default_app_app) as c:\n+        response = c.get(\"/api/stream\")",
+        "created_at": "2026-03-31T21:56:47+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_sse.py",
+        "line": 400,
+        "body": "Maybe better make it return the same as `stream_events_typed` above for consistency.\nAnd the same for `default_parent_stream`.\n\nBut not critical for me",
+        "diff_hunk": "+}\n+\n+\n+# default_response_class on app\n+\n+default_app_app = FastAPI(default_response_class=EventSourceResponse)\n+default_app_router = APIRouter()\n+\n+\n+@default_app_router.get(\"/stream\")\n+async def default_app_stream() -> AsyncIterable[Item]:\n+    yield items[0]",
+        "created_at": "2026-03-31T22:02:30+00:00"
+      }
+    ],
+    "final_sha": "bdcff30ca261b51a364d8aa55f5c6bf071cce1fa",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#14874",
+    "repo": "fastapi/fastapi",
+    "number": 14874,
+    "title": "🐛 Fix handling sequences with nested Annotated types",
+    "created_at": "2026-02-09T11:05:47+00:00",
+    "head_sha": "cda2003ff55b6aa38d8dbb253bbdf281d5c16d33",
+    "files": [
+      {
+        "filename": "fastapi/_compat/shared.py",
+        "status": "modified",
+        "patch": "@@ -65,6 +65,10 @@ def _annotation_is_sequence(annotation: Union[type[Any], None]) -> bool:\n \n def field_annotation_is_sequence(annotation: Union[type[Any], None]) -> bool:\n     origin = get_origin(annotation)\n+\n+    if origin is Annotated:\n+        return field_annotation_is_sequence(get_args(annotation)[0])\n+\n     if origin is Union or origin is UnionType:\n         for arg in get_args(annotation):\n             if field_annotation_is_sequence(arg):\n@@ -110,6 +114,10 @@ def field_annotation_is_scalar(annotation: Any) -> bool:\n \n def field_annotation_is_scalar_sequence(annotation: Union[type[Any], None]) -> bool:\n     origin = get_origin(annotation)\n+\n+    if origin is Annotated:\n+        return field_annotation_is_scalar_sequence(get_args(annotation)[0])\n+\n     if origin is Union or origin is UnionType:\n         at_least_one_scalar_sequence = False\n         for arg in get_args(annotation):"
+      },
+      {
+        "filename": "tests/test_nested_annotated_in_sequence.py",
+        "status": "added",
+        "patch": "@@ -0,0 +1,136 @@\n+from typing import Annotated, Union\n+\n+from dirty_equals import IsList\n+from fastapi import FastAPI, Query\n+from fastapi.testclient import TestClient\n+from pydantic import Field\n+\n+MaxSizedSet = Annotated[set[str], Field(max_length=3)]\n+\n+app = FastAPI()\n+\n+\n+@app.get(\"/\")\n+def read_root(foo: Annotated[Union[MaxSizedSet, None], Query()] = None):\n+    return {\"foo\": foo}\n+\n+\n+client = TestClient(app)\n+\n+\n+def test_endpoint_none():\n+    response = client.get(\"/\")\n+    assert response.status_code == 200\n+    assert response.json() == {\"foo\": None}\n+\n+\n+def test_endpoint_valid():\n+    response = client.get(\"/\", params={\"foo\": [\"a\", \"b\"]})\n+    assert response.status_code == 200\n+    assert response.json() == {\"foo\": IsList(\"a\", \"b\", check_order=False)}\n+\n+\n+def test_endpoint_too_long():\n+    response = client.get(\"/\", params={\"foo\": [\"a\", \"b\", \"c\", \"d\"]})\n+    assert response.status_code == 422\n+    assert response.json() == {\n+        \"detail\": [\n+            {\n+                \"type\": \"too_long\",\n+                \"loc\": [\"query\", \"foo\"],\n+                \"msg\": \"Set should have at most 3 items after validation, not more\",\n+                \"input\": IsList(\"a\", \"b\", \"c\", \"d\", check_order=False),\n+                \"ctx\": {\n+                    \"actual_length\": None,\n+                    \"field_type\": \"Set\",\n+                    \"max_length\": 3,\n+                },\n+            }\n+        ]\n+    }\n+\n+\n+def test_openapi():\n+    assert app.openapi() == {\n+        \"components\": {\n+            \"schemas\": {\n+                \"HTTPValidationError\": {\n+                    \"properties\": {\n+                        \"detail\": {\n+                            \"items\": {\"$ref\": \"#/components/schemas/ValidationError\"},\n+                            \"title\": \"Detail\",\n+                            \"type\": \"array\",\n+                        },\n+                    },\n+                    \"title\": \"HTTPValidationError\",\n+                    \"type\": \"object\",\n+                },\n+                \"ValidationError\": {\n+                    \"properties\": {\n+                        \"ctx\": {\"title\": \"Context\", \"type\": \"object\"},\n+                        \"input\": {\"title\": \"Input\"},\n+                        \"loc\": {\n+                            \"items\": {\n+                                \"anyOf\": [{\"type\": \"string\"}, {\"type\": \"integer\"}],\n+                            },\n+                            \"title\": \"Location\",\n+                            \"type\": \"array\",\n+                        },\n+                        \"msg\": {\"title\": \"Message\", \"type\": \"string\"},\n+                        \"type\": {\"title\": \"Error Type\", \"type\": \"string\"},\n+                    },\n+                    \"required\": [\"loc\", \"msg\", \"type\"],\n+                    \"title\": \"ValidationError\",\n+                    \"type\": \"object\",\n+                },\n+            },\n+        },\n+        \"info\": {\n+            \"title\": \"FastAPI\",\n+            \"version\": \"0.1.0\",\n+        },\n+        \"openapi\": \"3.1.0\",\n+        \"paths\": {\n+            \"/\": {\n+                \"get\": {\n+                    \"operationId\": \"read_root__get\",\n+                    \"parameters\": [\n+                        {\n+                            \"in\": \"query\",\n+                            \"name\": \"foo\",\n+                            \"required\": False,\n+                            \"schema\": {\n+                                \"anyOf\": [\n+                                    {\n+                                        \"items\": {\"type\": \"string\"},\n+                                        \"maxItems\": 3,\n+                                        \"type\": \"array\",\n+                                        \"uniqueItems\": True,\n+                                    },\n+                                    {\"type\": \"null\"},\n+                                ],\n+                                \"title\": \"Foo\",\n+                            },\n+                        },\n+                    ],\n+                    \"responses\": {\n+                        \"200\": {\n+                            \"content\": {\"application/json\": {\"schema\": {}}},\n+                            \"description\": \"Successful Response\",\n+                        },\n+                        \"422\": {\n+                            \"content\": {\n+                                \"application/json\": {\n+                                    \"schema\": {\n+                                        \"$ref\": \"#/components/schemas/HTTPValidationError\",\n+                                    },\n+                                },\n+                            },\n+                            \"description\": \"Validation Error\",\n+                        },\n+                    },\n+                    \"summary\": \"Read Root\",\n+                },\n+            },\n+        },\n+    }"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "clefeu",
+        "path": "tests/test_nested_annotated_in_sequence.py",
+        "line": 14,
+        "body": "Why don't you use `MaxSizedSet | None`?",
+        "diff_hunk": "+from dirty_equals import IsList\n+from fastapi import FastAPI, Query\n+from fastapi.testclient import TestClient\n+from pydantic import Field\n+\n+MaxSizedSet = Annotated[set[str], Field(max_length=3)]\n+\n+app = FastAPI()\n+\n+\n+@app.get(\"/\")\n+def read_root(foo: Annotated[Union[MaxSizedSet, None], Query()] = None):",
+        "created_at": "2026-02-11T08:11:35+00:00"
+      }
+    ],
+    "final_sha": "a07ede237c7ed28fece1082635e59da98f4e98ab",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#14828",
+    "repo": "fastapi/fastapi",
+    "number": 14828,
+    "title": "✅ Test order for the submitted byte Files",
+    "created_at": "2026-02-05T04:05:37+00:00",
+    "head_sha": "ed608b6c951eadbd83191c83e5c17ce4747b26d8",
+    "files": [
+      {
+        "filename": "fastapi/dependencies/utils.py",
+        "status": "modified",
+        "patch": "@@ -893,17 +893,21 @@ async def _extract_form_body(\n         ):\n             # For types\n             assert isinstance(value, sequence_types)\n-            results: list[Union[bytes, str]] = []\n+            results: list[Union[bytes, str, None]] = [None] * len(value)\n \n             async def process_fn(\n+                idx: int,\n                 fn: Callable[[], Coroutine[Any, Any, Any]],\n             ) -> None:\n                 result = await fn()\n-                results.append(result)  # noqa: B023\n+                # Using index to preserve order\n+                results[idx] = result  # noqa: B023\n \n             async with anyio.create_task_group() as tg:\n-                for sub_value in value:\n-                    tg.start_soon(process_fn, sub_value.read)\n+                for idx, sub_value in enumerate(value):\n+                    tg.start_soon(process_fn, idx, sub_value.read)\n+\n+            assert all(item is not None for item in results)\n             value = serialize_sequence_value(field=field, value=results)\n         if value is not None:\n             values[get_validation_alias(field)] = value"
+      },
+      {
+        "filename": "tests/test_list_bytes_file_order_preserved_issue_14811.py",
+        "status": "added",
+        "patch": "@@ -0,0 +1,46 @@\n+\"\"\"\n+Regression test: preserve order when using list[bytes] + File()\n+See https://github.com/fastapi/fastapi/discussions/14811\n+Related: PR #3372\n+\"\"\"\n+\n+from typing import Annotated\n+\n+import anyio\n+import pytest\n+from fastapi import FastAPI, File\n+from fastapi.testclient import TestClient\n+from starlette.datastructures import UploadFile as StarletteUploadFile\n+\n+\n+def test_list_bytes_file_preserves_order_issue_14811(\n+    monkeypatch: pytest.MonkeyPatch,\n+) -> None:\n+    app = FastAPI()\n+\n+    @app.post(\"/upload\")\n+    async def upload(files: Annotated[list[bytes], File()]):\n+        # return something that makes order obvious\n+        return [b[0] for b in files]\n+\n+    original_read = StarletteUploadFile.read\n+\n+    async def patched_read(self: StarletteUploadFile, size: int = -1) -> bytes:\n+        # Make the FIRST file slower *deterministically*\n+        if self.filename == \"slow.txt\":\n+            await anyio.sleep(0.05)\n+        return await original_read(self, size)\n+\n+    monkeypatch.setattr(StarletteUploadFile, \"read\", patched_read)\n+\n+    client = TestClient(app)\n+\n+    files = [\n+        (\"files\", (\"slow.txt\", b\"A\" * 10, \"text/plain\")),\n+        (\"files\", (\"fast.txt\", b\"B\" * 10, \"text/plain\")),\n+    ]\n+    r = client.post(\"/upload\", files=files)\n+    assert r.status_code == 200, r.text\n+\n+    # Must preserve request order: slow first, fast second\n+    assert r.json() == [ord(\"A\"), ord(\"B\")]"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_list_bytes_file_order_preserved_issue_14811.py",
+        "line": 16,
+        "body": "```suggestion\ndef test_list_bytes_file_preserves_order(\n```",
+        "diff_hunk": "+\"\"\"\n+\n+from typing import Annotated\n+\n+import anyio\n+import pytest\n+from fastapi import FastAPI, File\n+from fastapi.testclient import TestClient\n+from starlette.datastructures import UploadFile as StarletteUploadFile\n+\n+\n+def test_list_bytes_file_preserves_order_issue_14811(",
+        "created_at": "2026-02-05T12:00:26+00:00"
+      }
+    ],
+    "final_sha": "fb7520bbdd169f83fdb5c10e8a92a91b08c8b596",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#14809",
+    "repo": "fastapi/fastapi",
+    "number": 14809,
+    "title": "📝 Add banner to translated pages",
+    "created_at": "2026-02-03T14:42:02+00:00",
+    "head_sha": "1e3f112d2689be96d617d1b62e1c22ee9b2eeeca",
+    "files": [
+      {
+        "filename": "docs/en/mkdocs.yml",
+        "status": "modified",
+        "patch": "@@ -294,6 +294,7 @@ markdown_extensions:\n     - info\n     - check\n   pymdownx.blocks.details: null\n+  pymdownx.details: null\n   pymdownx.blocks.tab:\n     alternate_style: true\n   mdx_include: null"
+      },
+      {
+        "filename": "docs/en/translation-banner.md",
+        "status": "added",
+        "patch": "@@ -0,0 +1,7 @@\n+??? note \"🌐 Translation by AI and humans\"\n+\n+    This translation was made by AI guided by humans. 🤝\n+\n+    It could have mistakes of misunderstanding the original meaning, or looking unnatural, etc. 🤖\n+\n+    You can improve this translation by [helping us guide the AI LLM better](https://fastapi.tiangolo.com/contributing/#translations)."
+      },
+      {
+        "filename": "docs/ru/translation-banner.md",
+        "status": "added",
+        "patch": "@@ -0,0 +1,7 @@\n+??? note \"🌐 Перевод выполнен с помощью ИИ и людей\"\n+\n+    Этот перевод был сделан ИИ под руководством людей. 🤝\n+\n+    В нем могут быть ошибки из-за неправильного понимания оригинального смысла или неестественности и т. д. 🤖\n+\n+    Вы можете улучшить этот перевод, [помогая нам лучше направлять ИИ LLM](https://fastapi.tiangolo.com/contributing/#translations)."
+      },
+      {
+        "filename": "scripts/mkdocs_hooks.py",
+        "status": "modified",
+        "patch": "@@ -26,6 +26,17 @@ def get_missing_translation_content(docs_dir: str) -> str:\n     return missing_translation_path.read_text(encoding=\"utf-8\")\n \n \n+@lru_cache\n+def get_translation_banner_content(docs_dir: str) -> str:\n+    docs_dir_path = Path(docs_dir)\n+    translation_banner_path = docs_dir_path.parent / \"translation-banner.md\"\n+    if not translation_banner_path.is_file():\n+        translation_banner_path = (\n+            docs_dir_path.parent.parent / \"en\" / \"translation-banner.md\"\n+        )\n+    return translation_banner_path.read_text(encoding=\"utf-8\")\n+\n+\n @lru_cache\n def get_mkdocs_material_langs() -> list[str]:\n     material_path = Path(material.__file__).parent\n@@ -151,4 +162,17 @@ def on_page_markdown(\n         if markdown.startswith(\"#\"):\n             header, _, body = markdown.partition(\"\\n\\n\")\n         return f\"{header}\\n\\n{missing_translation_content}\\n\\n{body}\"\n-    return markdown\n+\n+    docs_dir_path = Path(config.docs_dir)\n+    en_docs_dir_path = docs_dir_path.parent.parent / \"en/docs\"\n+\n+    if docs_dir_path == en_docs_dir_path:\n+        return markdown\n+\n+    # For translated pages add translation banner\n+    translation_banner_content = get_translation_banner_content(config.docs_dir)\n+    header = \"\"\n+    body = markdown\n+    if markdown.startswith(\"#\"):\n+        header, _, body = markdown.partition(\"\\n\\n\")\n+    return f\"{header}\\n\\n{translation_banner_content}\\n\\n{body}\""
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "tiangolo",
+        "path": "scripts/mkdocs_hooks.py",
+        "line": 178,
+        "body": "Looking at this I'm realizing that we already have the data to put there a link to the original in English, that might help.\n\nWe could add an:\n\n```Markdown\n[English version](https://blahblah/link)\n```",
+        "diff_hunk": "+    en_docs_dir_path = docs_dir_path.parent.parent / \"en/docs\"\n+\n+    if docs_dir_path == en_docs_dir_path:\n+        return markdown\n+\n+    # For translated pages add translation banner\n+    translation_banner_content = get_translation_banner_content(config.docs_dir)\n+    header = \"\"\n+    body = markdown\n+    if markdown.startswith(\"#\"):\n+        header, _, body = markdown.partition(\"\\n\\n\")\n+    return f\"{header}\\n\\n{translation_banner_content}\\n\\n{body}\"",
+        "created_at": "2026-02-04T11:33:50+00:00"
+      }
+    ],
+    "final_sha": "aeaec54780a6b19102be66f6c0c5e0ff99cacadc",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#14616",
+    "repo": "fastapi/fastapi",
+    "number": 14616,
+    "title": "🐛 Fix using `Json[list[str]]` type (issue #10997)",
+    "created_at": "2025-12-28T10:25:02+00:00",
+    "head_sha": "9343184024c6cd8488b2f5a69b492ae533ad6732",
+    "files": [
+      {
+        "filename": "fastapi/dependencies/utils.py",
+        "status": "modified",
+        "patch": "@@ -716,11 +716,22 @@ def _validate_value_with_model_field(\n         return v_, []\n \n \n+def _is_json_field(field: ModelField) -> bool:\n+    # Pydantic v1 FieldInfo doesn't have metadata attribute\n+    metadata = getattr(field.field_info, \"metadata\", [])\n+    return any(\n+        type(item).__name__ == \"Json\" and type(item).__module__ == \"pydantic.types\"\n+        for item in metadata\n+    )\n+\n+\n def _get_multidict_value(\n     field: ModelField, values: Mapping[str, Any], alias: Union[str, None] = None\n ) -> Any:\n     alias = alias or get_validation_alias(field)\n-    if is_sequence_field(field) and isinstance(values, (ImmutableMultiDict, Headers)):\n+    if _is_json_field(field):\n+        value = values.get(alias, None)\n+    elif is_sequence_field(field) and isinstance(values, (ImmutableMultiDict, Headers)):\n         value = values.getlist(alias)\n     else:\n         value = values.get(alias, None)"
+      },
+      {
+        "filename": "tests/test_form_json_type.py",
+        "status": "added",
+        "patch": "@@ -0,0 +1,44 @@\n+import json\n+from typing import Annotated\n+\n+from fastapi import FastAPI, Form\n+from fastapi.testclient import TestClient\n+from pydantic import BaseModel, Json\n+\n+app = FastAPI()\n+\n+\n+class JsonListModel(BaseModel):\n+    json_list: Json[list[str]]\n+\n+\n+@app.post(\"/form-str\")\n+def form_str(json_list: Annotated[str, Form()]) -> list[str]:\n+    model = JsonListModel(json_list=json_list)  # type: ignore[arg-type]\n+    return model.json_list\n+\n+\n+@app.post(\"/form-json-list\")\n+def form_json_list(json_list: Annotated[Json[list[str]], Form()]) -> list[str]:\n+    return json_list\n+\n+\n+client = TestClient(app)\n+\n+\n+def test_form_str():\n+    response = client.post(\n+        \"/form-str\",\n+        data={\"json_list\": json.dumps([\"abc\", \"def\"])},\n+    )\n+    assert response.status_code == 200, response.text\n+    assert response.json() == [\"abc\", \"def\"]\n+\n+\n+def test_form_json_list():\n+    response = client.post(\n+        \"/form-json-list\",\n+        data={\"json_list\": json.dumps([\"abc\", \"def\"])},\n+    )\n+    assert response.status_code == 200, response.text\n+    assert response.json() == [\"abc\", \"def\"]"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "YuriiMotov",
+        "path": "fastapi/dependencies/utils.py",
+        "line": 725,
+        "body": "```suggestion\r\n    return any(isinstance(item, Json) for item in field.field_info.metadata)\r\n```\r\n\r\nFastAPI dropped the support of Pydantic V1 recently.\r\nWe can now simplify this.\r\nAlso, we should use `isinstance` to check type",
+        "diff_hunk": "@@ -716,11 +716,22 @@ def _validate_value_with_model_field(\n         return v_, []\n \n \n+def _is_json_field(field: ModelField) -> bool:\n+    # Pydantic v1 FieldInfo doesn't have metadata attribute\n+    metadata = getattr(field.field_info, \"metadata\", [])\n+    return any(\n+        type(item).__name__ == \"Json\" and type(item).__module__ == \"pydantic.types\"\n+        for item in metadata\n+    )",
+        "created_at": "2026-01-08T07:17:43+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "fastapi/dependencies/utils.py",
+        "line": 734,
+        "body": "```suggestion\r\n    if (\r\n        (not _is_json_field(field))\r\n        and is_sequence_field(field)\r\n        and isinstance(values, (ImmutableMultiDict, Headers))\r\n    ):\r\n```",
+        "diff_hunk": "+        for item in metadata\n+    )\n+\n+\n def _get_multidict_value(\n     field: ModelField, values: Mapping[str, Any], alias: Union[str, None] = None\n ) -> Any:\n     alias = alias or get_validation_alias(field)\n-    if is_sequence_field(field) and isinstance(values, (ImmutableMultiDict, Headers)):\n+    if _is_json_field(field):\n+        value = values.get(alias, None)\n+    elif is_sequence_field(field) and isinstance(values, (ImmutableMultiDict, Headers)):",
+        "created_at": "2026-01-08T07:18:28+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_form_json_type.py",
+        "line": 35,
+        "body": "```suggestion\r\n```\r\nI think we don't need this test",
+        "diff_hunk": "+\n+\n+client = TestClient(app)\n+\n+\n+def test_form_str():\n+    response = client.post(\n+        \"/form-str\",\n+        data={\"json_list\": json.dumps([\"abc\", \"def\"])},\n+    )\n+    assert response.status_code == 200, response.text\n+    assert response.json() == [\"abc\", \"def\"]",
+        "created_at": "2026-01-08T07:21:15+00:00"
+      },
+      {
+        "author": "YuriiMotov",
+        "path": "tests/test_form_json_type.py",
+        "line": 18,
+        "body": "```suggestion\r\n```\r\nI think we don't need this",
+        "diff_hunk": "+\n+app = FastAPI()\n+\n+\n+class JsonListModel(BaseModel):\n+    json_list: Json[list[str]]\n+\n+\n+@app.post(\"/form-str\")\n+def form_str(json_list: Annotated[str, Form()]) -> list[str]:\n+    model = JsonListModel(json_list=json_list)  # type: ignore[arg-type]\n+    return model.json_list",
+        "created_at": "2026-01-08T07:21:45+00:00"
+      }
+    ],
+    "final_sha": "5f7fa6a62dd5943cee979c1385094d1273500213",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "fastapi/fastapi#14434",
+    "repo": "fastapi/fastapi",
+    "number": 14434,
+    "title": "♻️ Refactor internals, update `is_coroutine` check to reuse internal supported variants (unwrap, check class)",
+    "created_at": "2025-12-02T13:38:12+00:00",
+    "head_sha": "8031fb607edc38c8bf19bd86ef210891d79cd47d",
+    "files": [
+      {
+        "filename": "fastapi/routing.py",
+        "status": "modified",
+        "patch": "@@ -80,9 +80,9 @@\n from typing_extensions import Annotated, deprecated\n \n if sys.version_info >= (3, 13):  # pragma: no cover\n-    from inspect import iscoroutinefunction\n+    pass\n else:  # pragma: no cover\n-    from asyncio import iscoroutinefunction\n+    pass\n \n \n # Copy of starlette.routing.request_response modified to include the\n@@ -308,7 +308,7 @@ def get_request_handler(\n     embed_body_fields: bool = False,\n ) -> Callable[[Request], Coroutine[Any, Any, Response]]:\n     assert dependant.call is not None, \"dependant.call must be a function\"\n-    is_coroutine = iscoroutinefunction(dependant.call)\n+    is_coroutine = dependant.is_coroutine_callable\n     is_body_form = body_field and isinstance(\n         body_field.field_info, (params.Form, temp_pydantic_v1_params.Form)\n     )"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "dolfinus",
+        "path": "fastapi/routing.py",
+        "line": 83,
+        "body": "Why keeping this condition with empty branches?",
+        "diff_hunk": "@@ -80,9 +80,9 @@\n from typing_extensions import Annotated, deprecated\n \n if sys.version_info >= (3, 13):  # pragma: no cover\n-    from inspect import iscoroutinefunction\n+    pass",
+        "created_at": "2025-12-02T13:54:55+00:00"
+      }
+    ],
+    "final_sha": "8031fb607edc38c8bf19bd86ef210891d79cd47d",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "psf/requests#7502",
+    "repo": "psf/requests",
+    "number": 7502,
+    "title": "Fix `_encode_files` detection for `__getattr__`-based file wrappers",
+    "created_at": "2026-06-08T09:49:14+00:00",
+    "head_sha": "e7de262f368a21f83efe70d03bf27994b969b572",
+    "files": [
+      {
+        "filename": "src/requests/models.py",
+        "status": "modified",
+        "patch": "@@ -236,7 +236,8 @@ def _encode_files(\n \n             if isinstance(fp, (str, bytes, bytearray)):\n                 fdata = fp\n-            elif isinstance(fp, _SupportsRead):  # type: ignore[reportUnnecessaryIsInstance]  # defensive check for untyped callers\n+            # data that proxies attributes to underlying objects needs hasattr\n+            elif isinstance(fp, _SupportsRead) or hasattr(fp, 'read'):  # type: ignore[reportUnnecessaryIsInstance]  # defensive check for untyped callers\n                 fdata = fp.read()\n             elif fp is None:  # defensive check for untyped callers\n                 continue"
+      },
+      {
+        "filename": "tests/test_requests.py",
+        "status": "modified",
+        "patch": "@@ -1087,6 +1087,32 @@ def test_different_encodings_dont_break_post(self, httpbin):\n             )\n         assert r.status_code == 200\n \n+    def test_post_tempfile(self, httpbin):\n+        with tempfile.TemporaryFile(mode=\"w+\") as f:\n+            f.write(\"temp file contents\\n\")\n+            f.seek(0)\n+            r = requests.post(\n+                httpbin(\"post\"),\n+                data={\"stuff\": json.dumps({\"a\": 123})},\n+                params={\"blah\": \"asdf1234\"},\n+                files={\"file\": f},\n+            )\n+        assert r.status_code == 200\n+        assert r.json()[\"files\"][\"file\"] == \"temp file contents\\n\"\n+\n+    def test_post_named_tempfile(self, httpbin):\n+        with tempfile.NamedTemporaryFile(mode=\"w+\") as f:\n+            f.write(\"named temp file contents\\n\")\n+            f.seek(0)\n+            r = requests.post(\n+                httpbin(\"post\"),\n+                data={\"stuff\": json.dumps({\"a\": 123})},\n+                params={\"blah\": \"asdf1234\"},\n+                files={\"file\": f},\n+            )\n+        assert r.status_code == 200\n+        assert r.json()[\"files\"][\"file\"] == \"named temp file contents\\n\"\n+\n     @pytest.mark.parametrize(\n         \"data\",\n         ("
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "nateprewitt",
+        "path": "tests/test_requests.py",
+        "line": 1090,
+        "body": "I'm not sure we need both of these tests. Either class encompasses the behavior we're trying to guard against, and if we truly need both, the test should be parameterized.\n\nI'd bias towards removing the second though.",
+        "diff_hunk": "@@ -1087,6 +1087,32 @@ def test_different_encodings_dont_break_post(self, httpbin):\n             )\n         assert r.status_code == 200\n \n+    def test_post_tempfile(self, httpbin):",
+        "created_at": "2026-06-08T17:22:51+00:00"
+      },
+      {
+        "author": "nateprewitt",
+        "path": "tests/test_requests.py",
+        "line": 1097,
+        "body": "Do we actually need `data` or `params`? The behavior should trigger with just `files`. Let's only use that to keep the tests intent clear.",
+        "diff_hunk": "@@ -1087,6 +1087,32 @@ def test_different_encodings_dont_break_post(self, httpbin):\n             )\n         assert r.status_code == 200\n \n+    def test_post_tempfile(self, httpbin):\n+        with tempfile.TemporaryFile(mode=\"w+\") as f:\n+            f.write(\"temp file contents\\n\")\n+            f.seek(0)\n+            r = requests.post(\n+                httpbin(\"post\"),\n+                data={\"stuff\": json.dumps({\"a\": 123})},\n+                params={\"blah\": \"asdf1234\"},",
+        "created_at": "2026-06-08T17:24:14+00:00"
+      },
+      {
+        "author": "nateprewitt",
+        "path": "tests/test_requests.py",
+        "line": 1090,
+        "body": "Sure, `NamedTemporaryFile` is fine for the test if that catches the wrapper issue.",
+        "diff_hunk": "@@ -1087,6 +1087,32 @@ def test_different_encodings_dont_break_post(self, httpbin):\n             )\n         assert r.status_code == 200\n \n+    def test_post_tempfile(self, httpbin):",
+        "created_at": "2026-06-08T18:05:56+00:00"
+      }
+    ],
+    "final_sha": "be53ff13b12df758cba1220f48fca0be31bcf03c",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#7496",
+    "repo": "psf/requests",
+    "number": 7496,
+    "title": "Improve static typing of 3rd party imports ",
+    "created_at": "2026-06-04T14:37:56+00:00",
+    "head_sha": "51599157d669a044272a96d547b4065103e1e5f3",
+    "files": [
+      {
+        "filename": "pyproject.toml",
+        "status": "modified",
+        "patch": "@@ -69,6 +69,9 @@ test = [\n typecheck = [\n     \"pyright\",\n     \"typing_extensions\",\n+    \"chardet\",\n+    \"cryptography\",\n+    \"PyOpenSSL\",\n ]\n \n [tool.setuptools]"
+      },
+      {
+        "filename": "src/requests/__init__.py",
+        "status": "modified",
+        "patch": "@@ -52,7 +52,7 @@\n     charset_normalizer_version = None\n \n try:\n-    from chardet import __version__ as chardet_version  # type: ignore[import-not-found]\n+    from chardet import __version__ as chardet_version\n except ImportError:\n     chardet_version = None\n \n@@ -112,7 +112,7 @@ def _check_cryptography(cryptography_version: str) -> None:\n try:\n     check_compatibility(\n         urllib3.__version__,  # type: ignore[reportPrivateImportUsage]\n-        chardet_version,  # type: ignore[reportUnknownArgumentType]\n+        chardet_version,\n         charset_normalizer_version,\n     )\n except (AssertionError, ValueError):\n@@ -138,11 +138,11 @@ def _check_cryptography(cryptography_version: str) -> None:\n         pyopenssl.inject_into_urllib3()\n \n         # Check cryptography version\n-        from cryptography import (  # type: ignore[reportMissingImports]\n-            __version__ as cryptography_version,  # type: ignore[reportUnknownVariableType]\n+        from cryptography import (\n+            __version__ as cryptography_version,\n         )\n \n-        _check_cryptography(cryptography_version)  # type: ignore[reportUnknownArgumentType]\n+        _check_cryptography(cryptography_version)\n except ImportError:\n     pass\n "
+      },
+      {
+        "filename": "src/requests/compat.py",
+        "status": "modified",
+        "patch": "@@ -14,6 +14,7 @@\n import importlib\n import sys\n from types import ModuleType\n+from typing import TYPE_CHECKING\n \n # -------\n # urllib3\n@@ -46,7 +47,10 @@ def _resolve_char_detection() -> ModuleType | None:\n     return chardet\n \n \n-chardet = _resolve_char_detection()\n+if TYPE_CHECKING:\n+    import chardet\n+else:\n+    chardet = _resolve_char_detection()\n \n # -------\n # Pythons"
+      },
+      {
+        "filename": "src/requests/help.py",
+        "status": "modified",
+        "patch": "@@ -1,7 +1,5 @@\n \"\"\"Module containing bug report helper(s).\"\"\"\n \n-# pyright: reportUnknownMemberType=false\n-\n import json\n import platform\n import ssl\n@@ -19,7 +17,7 @@\n     charset_normalizer = None\n \n try:\n-    import chardet  # type: ignore[import-not-found]\n+    import chardet\n except ImportError:\n     chardet = None\n \n@@ -30,8 +28,8 @@\n     OpenSSL = None\n     cryptography = None\n else:\n-    import cryptography  # type: ignore[import-not-found]\n-    import OpenSSL  # type: ignore[import-not-found]\n+    import cryptography\n+    import OpenSSL\n \n \n def _implementation():\n@@ -51,7 +49,7 @@ def _implementation():\n         implementation_version = platform.python_version()\n     elif implementation == \"PyPy\":\n         pypy = sys.pypy_version_info  # type: ignore[attr-defined]\n-        implementation_version = f\"{pypy.major}.{pypy.minor}.{pypy.micro}\"\n+        implementation_version = f\"{pypy.major}.{pypy.minor}.{pypy.micro}\"  # pyright: ignore[reportUnknownMemberType]\n         if sys.pypy_version_info.releaselevel != \"final\":  # type: ignore[attr-defined]\n             implementation_version = \"\".join(\n                 [implementation_version, sys.pypy_version_info.releaselevel]  # type: ignore[attr-defined]"
+      },
+      {
+        "filename": "src/requests/models.py",
+        "status": "modified",
+        "patch": "@@ -238,7 +238,7 @@ def _encode_files(\n                 fdata = fp\n             elif isinstance(fp, _SupportsRead):  # type: ignore[reportUnnecessaryIsInstance]  # defensive check for untyped callers\n                 fdata = fp.read()\n-            elif fp is None:  # type: ignore[reportUnnecessaryComparison]  # defensive check for untyped callers\n+            elif fp is None:  # defensive check for untyped callers\n                 continue\n             else:\n                 fdata = fp\n@@ -1010,7 +1010,7 @@ def iter_lines(\n         ):\n             if pending is not None:\n                 # TODO: remove cast after iter_lines rewrite\n-                chunk = cast(\"str | bytes\", pending + chunk)  # type: ignore[operator]\n+                chunk = cast(\"str | bytes\", pending + chunk)\n \n             if delimiter:\n                 lines = chunk.split(delimiter)  # type: ignore[arg-type]"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "nateprewitt",
+        "path": "src/requests/compat.py",
+        "line": 53,
+        "body": "I think this change isn't quite right. We're now type checking against the wrong character detection library and losing type nuance for what actually gets returned by `_resolve_char_detection` at runtime.\n\nThat's not the end of the world, because I don't think we're truly making use of the 3p types, but is probably something we want to align with the actual default behavior of Requests in the future.",
+        "diff_hunk": "@@ -46,7 +47,10 @@ def _resolve_char_detection() -> ModuleType | None:\n     return chardet\n \n \n-chardet = _resolve_char_detection()\n+if TYPE_CHECKING:\n+    import chardet\n+else:\n+    chardet = _resolve_char_detection()",
+        "created_at": "2026-06-08T17:35:21+00:00"
+      }
+    ],
+    "final_sha": "51599157d669a044272a96d547b4065103e1e5f3",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "psf/requests#7436",
+    "repo": "psf/requests",
+    "number": 7436,
+    "title": "Update JsonType containers to read-based collections",
+    "created_at": "2026-05-12T16:53:40+00:00",
+    "head_sha": "c44fb193f9bf21c8bc4b8b55985fe4835fbdeaae",
+    "files": [
+      {
+        "filename": "src/requests/_types.py",
+        "status": "modified",
+        "patch": "@@ -139,7 +139,7 @@ class _ValidatedRequest(PreparedRequest):\n     VerifyType: TypeAlias = bool | str\n     CertType: TypeAlias = str | tuple[str, str] | None\n     JsonType: TypeAlias = (\n-        None | bool | int | float | str | list[\"JsonType\"] | dict[str, \"JsonType\"]\n+        None | bool | int | float | str | list[\"JsonType\"] | Mapping[str, \"JsonType\"]\n     )\n \n     # TypedDicts for Unpack kwargs (PEP 692)"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "JamMarHer",
+        "path": "src/requests/_types.py",
+        "line": 142,
+        "body": "Consider making the following update as well:\n\n```suggestion\n        None | bool | int | float | str | Sequence[\"JsonType\"] | Mapping[str, \"JsonType\"]\n```",
+        "diff_hunk": "@@ -139,7 +139,7 @@ class _ValidatedRequest(PreparedRequest):\n     VerifyType: TypeAlias = bool | str\n     CertType: TypeAlias = str | tuple[str, str] | None\n     JsonType: TypeAlias = (\n-        None | bool | int | float | str | list[\"JsonType\"] | dict[str, \"JsonType\"]\n+        None | bool | int | float | str | list[\"JsonType\"] | Mapping[str, \"JsonType\"]",
+        "created_at": "2026-05-12T17:42:29+00:00"
+      },
+      {
+        "author": "JamMarHer",
+        "path": "src/requests/_types.py",
+        "line": 142,
+        "body": "Just saw your other comment https://github.com/psf/requests/issues/7434#issuecomment-4433151990. 🙇🏼",
+        "diff_hunk": "@@ -139,7 +139,7 @@ class _ValidatedRequest(PreparedRequest):\n     VerifyType: TypeAlias = bool | str\n     CertType: TypeAlias = str | tuple[str, str] | None\n     JsonType: TypeAlias = (\n-        None | bool | int | float | str | list[\"JsonType\"] | dict[str, \"JsonType\"]\n+        None | bool | int | float | str | list[\"JsonType\"] | Mapping[str, \"JsonType\"]",
+        "created_at": "2026-05-12T17:45:25+00:00"
+      }
+    ],
+    "final_sha": "1be917108874d28ae47cc311297d30790302b648",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#7433",
+    "repo": "psf/requests",
+    "number": 7433,
+    "title": "Fix `prepare_body` stream detection for `__getattr__`-based file wrappers",
+    "created_at": "2026-05-12T13:46:08+00:00",
+    "head_sha": "1c8315e4eb20a6b73b7691086f78844d55f08f28",
+    "files": [
+      {
+        "filename": "src/requests/models.py",
+        "status": "modified",
+        "patch": "@@ -596,7 +596,7 @@ def prepare_body(\n             if not isinstance(body, bytes):\n                 body = body.encode(\"utf-8\")\n \n-        if isinstance(data, Iterable) and not isinstance(\n+        if (isinstance(data, Iterable) or hasattr(data, \"__iter__\")) and not isinstance(\n             data, (str, bytes, list, tuple, Mapping)\n         ):\n             try:"
+      },
+      {
+        "filename": "tests/test_requests.py",
+        "status": "modified",
+        "patch": "@@ -2073,6 +2073,21 @@ def __iter__(self):\n \n         assert \"Unable to rewind request body\" in str(e)\n \n+    def test_getattr_proxy_stream_follows_redirect(self, httpbin):\n+        \"\"\"Ensure stream wrappers that don't implement __iter__ directly are still detected.\"\"\"\n+\n+        class AttrProxy:\n+            def __init__(self):\n+                self._file = io.BytesIO(b\"data\")\n+\n+            def __getattr__(self, name):\n+                return getattr(self._file, name)\n+\n+        r = requests.post(\n+            httpbin(\"redirect-to?url=/post&status_code=307\"), data=AttrProxy()\n+        )\n+        assert r.json()[\"data\"] == \"data\"\n+\n     def _patch_adapter_gzipped_redirect(self, session, url):\n         adapter = session.get_adapter(url=url)\n         org_build_response = adapter.build_response"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "nateprewitt",
+        "path": "src/requests/models.py",
+        "line": 599,
+        "body": "```suggestion\n        # data that proxies attributes to underlying objects needs hasattr\n        is_iterable = isinstance(data, Iterable) or hasattr(data, \"__iter__\")\n        if is_iterable and not isinstance(\n```",
+        "diff_hunk": "@@ -596,7 +596,7 @@ def prepare_body(\n             if not isinstance(body, bytes):\n                 body = body.encode(\"utf-8\")\n \n-        if isinstance(data, Iterable) and not isinstance(\n+        if (isinstance(data, Iterable) or hasattr(data, \"__iter__\")) and not isinstance(",
+        "created_at": "2026-05-12T17:03:35+00:00"
+      }
+    ],
+    "final_sha": "ea1c36c1b1a8364e234b6ad49ea05e3261636f8a",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#7431",
+    "repo": "psf/requests",
+    "number": 7431,
+    "title": "Fix mutability issues with headers input types",
+    "created_at": "2026-05-11T20:37:26+00:00",
+    "head_sha": "0a074cadfaccfbdd2f841d567a4c1a9132a72cd4",
+    "files": [
+      {
+        "filename": "src/requests/_types.py",
+        "status": "modified",
+        "patch": "@@ -109,8 +109,7 @@ class _ValidatedRequest(PreparedRequest):\n         bytes | str | Iterable[bytes | str] | SupportsRead[bytes | str] | None\n     )\n \n-    HeadersType: TypeAlias = CaseInsensitiveDict[str] | Mapping[str, str | bytes]\n-    HeadersUpdateType: TypeAlias = Mapping[str, str | bytes | None]\n+    HeadersType: TypeAlias = MutableMapping[str, str | bytes] | None\n \n     CookiesType: TypeAlias = RequestsCookieJar | Mapping[str, str]\n \n@@ -145,7 +144,7 @@ class _ValidatedRequest(PreparedRequest):\n     # TypedDicts for Unpack kwargs (PEP 692)\n \n     class BaseRequestKwargs(TypedDict, total=False):\n-        headers: Mapping[str, str | bytes] | None\n+        headers: HeadersType\n         cookies: RequestsCookieJar | CookieJar | dict[str, str] | None\n         files: FilesType\n         auth: AuthType"
+      },
+      {
+        "filename": "src/requests/models.py",
+        "status": "modified",
+        "patch": "@@ -83,6 +83,7 @@\n )\n \n if TYPE_CHECKING:\n+    from collections.abc import MutableMapping\n     from http.cookiejar import CookieJar\n \n     from typing_extensions import Self\n@@ -310,7 +311,7 @@ class Request(RequestHooksMixin):\n \n     method: str | None\n     url: _t.UriType | None\n-    headers: CaseInsensitiveDict[str] | Mapping[str, str | bytes] | None\n+    headers: MutableMapping[str, str | bytes]\n     files: _t.FilesType\n     data: _t.DataType\n     json: _t.JsonType\n@@ -322,7 +323,7 @@ def __init__(\n         self,\n         method: str | None = None,\n         url: _t.UriType | None = None,\n-        headers: Mapping[str, str | bytes] | None = None,\n+        headers: _t.HeadersType = None,\n         files: _t.FilesType = None,\n         data: _t.DataType = None,\n         params: _t.ParamsType = None,"
+      },
+      {
+        "filename": "src/requests/sessions.py",
+        "status": "modified",
+        "patch": "@@ -560,7 +560,7 @@ def request(\n         url: _t.UriType,\n         params: _t.ParamsType = None,\n         data: _t.DataType = None,\n-        headers: Mapping[str, str | bytes] | None = None,\n+        headers: _t.HeadersType = None,\n         cookies: RequestsCookieJar | CookieJar | dict[str, str] | None = None,\n         files: _t.FilesType = None,\n         auth: _t.AuthType = None,"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "sigmavirus24",
+        "path": "src/requests/models.py",
+        "line": 314,
+        "body": "Why not headerstype here too?",
+        "diff_hunk": "@@ -310,7 +311,7 @@ class Request(RequestHooksMixin):\n \n     method: str | None\n     url: _t.UriType | None\n-    headers: CaseInsensitiveDict[str] | Mapping[str, str | bytes] | None\n+    headers: MutableMapping[str, str | bytes]",
+        "created_at": "2026-05-12T00:28:54+00:00"
+      },
+      {
+        "author": "sdm0p",
+        "path": "src/requests/_types.py",
+        "line": 110,
+        "body": "⚠️ **HIGH** — *test_coverage*  \n**Confidence:** 70%  \n\nNew logic without tests: The `HeadersType` has been changed to `MutableMapping[str, str | bytes] | None` without adding corresponding tests.\n\n**Suggested fix:**\n```\nAdd tests to cover the new `HeadersType` logic.\n```",
+        "diff_hunk": "@@ -109,8 +109,7 @@ class _ValidatedRequest(PreparedRequest):\n         bytes | str | Iterable[bytes | str] | SupportsRead[bytes | str] | None\n     )",
+        "created_at": "2026-07-27T23:59:33+00:00"
+      },
+      {
+        "author": "sdm0p",
+        "path": "src/requests/models.py",
+        "line": 324,
+        "body": "📌 **MEDIUM** — *test_coverage*  \n**Confidence:** 70%  \n\nModified behaviour without updated assertions: The `Request` class's `__init__` method now uses the new `HeadersType` without updating the corresponding tests.\n\n**Suggested fix:**\n```\nUpdate the tests for the `Request` class's `__init__` method to cover the new `HeadersType` logic.\n```",
+        "diff_hunk": "@@ -322,7 +323,7 @@ def __init__(\n         self,\n         method: str | None = None,",
+        "created_at": "2026-07-27T23:59:34+00:00"
+      },
+      {
+        "author": "sdm0p",
+        "path": "src/requests/_types.py",
+        "line": 110,
+        "body": "⚠️ **HIGH** — *test_coverage*  \n**Confidence:** 80%  \n\nNew logic for handling MutableMapping in Request.headers is not tested.\n\n**Suggested fix:**\n```\nAdd test cases to cover the new logic for handling MutableMapping in Request.headers.\n```",
+        "diff_hunk": "@@ -109,8 +109,7 @@ class _ValidatedRequest(PreparedRequest):\n         bytes | str | Iterable[bytes | str] | SupportsRead[bytes | str] | None\n     )",
+        "created_at": "2026-07-28T00:03:07+00:00"
+      }
+    ],
+    "final_sha": "0a074cadfaccfbdd2f841d567a4c1a9132a72cd4",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "psf/requests#6865",
+    "repo": "psf/requests",
+    "number": 6865,
+    "title": "Update docstring for Session.verify to include string support (#6859)",
+    "created_at": "2025-01-01T16:05:50+00:00",
+    "head_sha": "0ad55393da4a0a2774108be290fe95dbba432432",
+    "files": [
+      {
+        "filename": "src/requests/sessions.py",
+        "status": "modified",
+        "patch": "@@ -420,6 +420,8 @@ def __init__(self):\n         #: presented by the server, and will ignore hostname mismatches and/or\n         #: expired certificates, which will make your application vulnerable to\n         #: man-in-the-middle (MitM) attacks.\n+        #: If verify is set to a string, it must be the path to a CA bundle file\n+        #: that will be used to verify the TLS certificate.\n         #: Only set this to `False` for testing.\n         self.verify = True\n "
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "nateprewitt",
+        "path": "src/requests/sessions.py",
+        "line": 425,
+        "body": "Let's keep the `False` warning attached to the rest of the `False` information, it may be easy to miss if you stop reading at that point.\n\n```suggestion\n        #: Only set this to `False` for testing.\n        #: If verify is set to a string, it must be the path to a CA bundle file\n        #: that will be used to verify the TLS certificate.\n```",
+        "diff_hunk": "@@ -420,6 +420,8 @@ def __init__(self):\n         #: presented by the server, and will ignore hostname mismatches and/or\n         #: expired certificates, which will make your application vulnerable to\n         #: man-in-the-middle (MitM) attacks.\n+        #: If verify is set to a string, it must be the path to a CA bundle file\n+        #: that will be used to verify the TLS certificate.\n         #: Only set this to `False` for testing.",
+        "created_at": "2026-02-13T02:43:27+00:00"
+      }
+    ],
+    "final_sha": "fc96f13387988f60aca3e1f1affc2078353f2e5f",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#6757",
+    "repo": "psf/requests",
+    "number": 6757,
+    "title": "Test on urllib3 1.26.x",
+    "created_at": "2024-07-02T01:11:04+00:00",
+    "head_sha": "d413b13371091c7dd49b812ecdbe9728a66567d9",
+    "files": [
+      {
+        "filename": ".github/workflows/run-tests.yml",
+        "status": "modified",
+        "patch": "@@ -57,3 +57,23 @@ jobs:\n       - name: Run tests\n         run: |\n           make ci\n+\n+  urllib3:\n+    name: 'urllib3 1.x'\n+    runs-on: 'ubuntu-latest'\n+    strategy:\n+      fail-fast: true\n+\n+    steps:\n+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608\n+      - name: 'Set up Python 3.8'\n+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d\n+        with:\n+          python-version: '3.8'\n+      - name: Install dependencies\n+        run: |\n+          make\n+          python  -m pip install \"urllib3<2\"\n+      - name: Run tests\n+        run: |\n+          make ci"
+      },
+      {
+        "filename": "src/requests/compat.py",
+        "status": "modified",
+        "patch": "@@ -10,6 +10,14 @@\n import importlib\n import sys\n \n+# -------\n+# urllib3\n+# -------\n+from urllib3 import __version__ as urllib3_version\n+\n+# Detect which major version of urllib3 is being used.\n+is_urllib3_2 = urllib3_version.split('.')[0] == 2\n+\n # -------------------\n # Character Detection\n # -------------------"
+      },
+      {
+        "filename": "src/requests/utils.py",
+        "status": "modified",
+        "patch": "@@ -41,6 +41,7 @@\n )\n from .compat import parse_http_list as _parse_list_header\n from .compat import (\n+    is_urllib3_2,\n     proxy_bypass,\n     proxy_bypass_environment,\n     quote,\n@@ -136,7 +137,9 @@ def super_len(o):\n     total_length = None\n     current_position = 0\n \n-    if isinstance(o, str):\n+    if is_urllib3_2 and isinstance(o, str):\n+        # urllib3 2.x treats all strings as utf-8 instead\n+        # of latin-1 (iso-8859-1) like http.client.\n         o = o.encode(\"utf-8\")\n \n     if hasattr(o, \"__len__\"):"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "sethmlarson",
+        "path": "src/requests/compat.py",
+        "line": 19,
+        "body": "I believe this is a string, not an integer. Also, should do a >= check instead of equals.",
+        "diff_hunk": "@@ -10,6 +10,14 @@\n import importlib\n import sys\n \n+# -------\n+# urllib3\n+# -------\n+from urllib3 import __version__ as urllib3_version\n+\n+# Detect which major version of urllib3 is being used.\n+is_urllib3_2 = urllib3_version.split('.')[0] == 2",
+        "created_at": "2024-07-18T16:49:44+00:00"
+      }
+    ],
+    "final_sha": "01353d3b4afe3afa838f8f5c08e5f30a5b50cb05",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#6724",
+    "repo": "psf/requests",
+    "number": 6724,
+    "title": "Don't create default SSLContext if ssl module isn't present",
+    "created_at": "2024-05-28T19:34:27+00:00",
+    "head_sha": "79423a484d93b0288c95f9b46ad400c019f8bf87",
+    "files": [
+      {
+        "filename": "src/requests/adapters.py",
+        "status": "modified",
+        "patch": "@@ -73,10 +73,18 @@ def SOCKSProxyManager(*args, **kwargs):\n DEFAULT_RETRIES = 0\n DEFAULT_POOL_TIMEOUT = None\n \n-_preloaded_ssl_context = create_urllib3_context()\n-_preloaded_ssl_context.load_verify_locations(\n-    extract_zipped_paths(DEFAULT_CA_BUNDLE_PATH)\n-)\n+\n+try:\n+    import ssl  # noqa: F401\n+\n+    _preloaded_ssl_context = create_urllib3_context()\n+    _preloaded_ssl_context.load_verify_locations(\n+        extract_zipped_paths(DEFAULT_CA_BUNDLE_PATH)\n+    )\n+except ImportError:\n+    # Bypass default SSLContext creation when Python\n+    # interpreter isn't built with the ssl module.\n+    _preloaded_ssl_context = None\n \n \n def _urllib3_request_context(\n@@ -90,13 +98,19 @@ def _urllib3_request_context(\n     parsed_request_url = urlparse(request.url)\n     scheme = parsed_request_url.scheme.lower()\n     port = parsed_request_url.port\n+\n+    # Determine if we have and should use our default SSLContext\n+    # to optimize performance on standard requests.\n     poolmanager_kwargs = getattr(poolmanager, \"connection_pool_kw\", {})\n     has_poolmanager_ssl_context = poolmanager_kwargs.get(\"ssl_context\")\n+    should_use_default_ssl_context = (\n+        _preloaded_ssl_context is not None and not has_poolmanager_ssl_context\n+    )\n \n     cert_reqs = \"CERT_REQUIRED\"\n     if verify is False:\n         cert_reqs = \"CERT_NONE\"\n-    elif verify is True and not has_poolmanager_ssl_context:\n+    elif verify is True and should_use_default_ssl_context:\n         pool_kwargs[\"ssl_context\"] = _preloaded_ssl_context\n     elif isinstance(verify, str):\n         if not os.path.isdir(verify):"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "sigmavirus24",
+        "path": "src/requests/adapters.py",
+        "line": 113,
+        "body": "Missed this earlier but do we need any logic for verify=True without a condition here?",
+        "diff_hunk": "+    # to optimize performance on standard requests.\n     poolmanager_kwargs = getattr(poolmanager, \"connection_pool_kw\", {})\n     has_poolmanager_ssl_context = poolmanager_kwargs.get(\"ssl_context\")\n+    should_use_default_ssl_context = (\n+        _preloaded_ssl_context is not None and not has_poolmanager_ssl_context\n+    )\n \n     cert_reqs = \"CERT_REQUIRED\"\n     if verify is False:\n         cert_reqs = \"CERT_NONE\"\n-    elif verify is True and not has_poolmanager_ssl_context:\n+    elif verify is True and should_use_default_ssl_context:",
+        "created_at": "2024-05-28T20:27:08+00:00"
+      },
+      {
+        "author": "sigmavirus24",
+        "path": "src/requests/adapters.py",
+        "line": 113,
+        "body": "Makes sense. I've a terrible headache so just looking at the branches and concerned about missing something is all.",
+        "diff_hunk": "+    # to optimize performance on standard requests.\n     poolmanager_kwargs = getattr(poolmanager, \"connection_pool_kw\", {})\n     has_poolmanager_ssl_context = poolmanager_kwargs.get(\"ssl_context\")\n+    should_use_default_ssl_context = (\n+        _preloaded_ssl_context is not None and not has_poolmanager_ssl_context\n+    )\n \n     cert_reqs = \"CERT_REQUIRED\"\n     if verify is False:\n         cert_reqs = \"CERT_NONE\"\n-    elif verify is True and not has_poolmanager_ssl_context:\n+    elif verify is True and should_use_default_ssl_context:",
+        "created_at": "2024-05-28T23:58:29+00:00"
+      },
+      {
+        "author": "sigmavirus24",
+        "path": "src/requests/adapters.py",
+        "line": 113,
+        "body": "Oh, looking again, not on a phone, and without a migraine, I see the `cert_reqs = \"CERT_REQUIRED\"` line on L110 that I clearly wrote, and which is what I was thinking we may want to be concerned about. So, I'm not nearly as worried.",
+        "diff_hunk": "+    # to optimize performance on standard requests.\n     poolmanager_kwargs = getattr(poolmanager, \"connection_pool_kw\", {})\n     has_poolmanager_ssl_context = poolmanager_kwargs.get(\"ssl_context\")\n+    should_use_default_ssl_context = (\n+        _preloaded_ssl_context is not None and not has_poolmanager_ssl_context\n+    )\n \n     cert_reqs = \"CERT_REQUIRED\"\n     if verify is False:\n         cert_reqs = \"CERT_NONE\"\n-    elif verify is True and not has_poolmanager_ssl_context:\n+    elif verify is True and should_use_default_ssl_context:",
+        "created_at": "2024-05-29T14:31:10+00:00"
+      },
+      {
+        "author": "sigmavirus24",
+        "path": "src/requests/adapters.py",
+        "line": 116,
+        "body": "Looking at this again with something of a performance mindset, do we want to cache somehow lookups to `isdir`? I'm not sure this hurts us at all, but just thinking about things that could slow us down in certain cases now. (Not for this pull request, just putting it out there)",
+        "diff_hunk": "+    should_use_default_ssl_context = (\n+        _preloaded_ssl_context is not None and not has_poolmanager_ssl_context\n+    )\n \n     cert_reqs = \"CERT_REQUIRED\"\n     if verify is False:\n         cert_reqs = \"CERT_NONE\"\n-    elif verify is True and not has_poolmanager_ssl_context:\n+    elif verify is True and should_use_default_ssl_context:\n         pool_kwargs[\"ssl_context\"] = _preloaded_ssl_context\n     elif isinstance(verify, str):\n         if not os.path.isdir(verify):",
+        "created_at": "2024-05-29T14:32:37+00:00"
+      }
+    ],
+    "final_sha": "79423a484d93b0288c95f9b46ad400c019f8bf87",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "psf/requests#6710",
+    "repo": "psf/requests",
+    "number": 6710,
+    "title": "Move _get_connection to get_connection_with_tls_context",
+    "created_at": "2024-05-21T15:58:50+00:00",
+    "head_sha": "aa1461b68aa73e2f6ec0e78c8853b635c76fd099",
+    "files": [
+      {
+        "filename": "src/requests/adapters.py",
+        "status": "modified",
+        "patch": "@@ -374,10 +374,20 @@ def build_response(self, req, resp):\n \n         return response\n \n-    def _get_connection(self, request, verify, proxies=None, cert=None):\n-        # Replace the existing get_connection without breaking things and\n-        # ensure that TLS settings are considered when we interact with\n-        # urllib3 HTTP Pools\n+    def get_connection_with_tls_context(self, request, verify, proxies=None, cert=None):\n+        \"\"\"Returns a urllib3 connection for the given request and TLS settings.\n+        This should not be called from user code, and is only exposed for use\n+        when subclassing the :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.\n+\n+        :param request: The :class:`PreparedRequest <PreparedRequest>` object\n+            to be sent over the connection.\n+        :param verify: Either a boolean, in which case it controls whether\n+            we verify the server's TLS certificate, or a string, in which case it\n+            must be a path to a CA bundle to use.\n+        :param proxies: (optional) The proxies dictionary to apply to the request.\n+        :param cert: (optional) Any user-provided SSL certificate to be trusted.\n+        :rtype: urllib3.ConnectionPool\n+        \"\"\"\n         proxy = select_proxy(request.url, proxies)\n         try:\n             host_params, pool_kwargs = _urllib3_request_context(request, verify, cert)\n@@ -404,7 +414,10 @@ def _get_connection(self, request, verify, proxies=None, cert=None):\n         return conn\n \n     def get_connection(self, url, proxies=None):\n-        \"\"\"Returns a urllib3 connection for the given URL. This should not be\n+        \"\"\"DEPRECATED: Users should move to `get_connection_with_tls_context`\n+        for all subclasses of HTTPAdapter using Requests>=2.32.2.\n+\n+        Returns a urllib3 connection for the given URL. This should not be\n         called from user code, and is only exposed for use when subclassing the\n         :class:`HTTPAdapter <requests.adapters.HTTPAdapter>`.\n \n@@ -529,7 +542,9 @@ def send(\n         \"\"\"\n \n         try:\n-            conn = self._get_connection(request, verify, proxies=proxies, cert=cert)\n+            conn = self.get_connection_with_tls_context(\n+                request, verify, proxies=proxies, cert=cert\n+            )\n         except LocationValueError as e:\n             raise InvalidURL(e, request=request)\n "
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "sethmlarson",
+        "path": "src/requests/adapters.py",
+        "line": 417,
+        "body": "If this method is deprecated shall we start emitting `DeprecationWarning`?",
+        "diff_hunk": "@@ -404,7 +414,10 @@ def _get_connection(self, request, verify, proxies=None, cert=None):\n         return conn\n \n     def get_connection(self, url, proxies=None):\n-        \"\"\"Returns a urllib3 connection for the given URL. This should not be\n+        \"\"\"DEPRECATED: Users should move to `get_connection_with_tls_context`",
+        "created_at": "2024-05-21T16:12:52+00:00"
+      }
+    ],
+    "final_sha": "92075b330a30b9883f466a43d3f7566ab849f91b",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "psf/requests#6702",
+    "repo": "psf/requests",
+    "number": 6702,
+    "title": "Allow optional char detection dependencies in post-packaging",
+    "created_at": "2024-05-14T22:25:35+00:00",
+    "head_sha": "555b870eb19d497ddb67042645420083ec8efb02",
+    "files": [
+      {
+        "filename": ".github/workflows/run-tests.yml",
+        "status": "modified",
+        "patch": "@@ -37,3 +37,23 @@ jobs:\n     - name: Run tests\n       run: |\n         make ci\n+\n+  no_chardet:\n+    name: \"No Character Detection\"\n+    runs-on: ubuntu-latest\n+    strategy:\n+      fail-fast: true\n+\n+    steps:\n+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608\n+      - name: 'Set up Python 3.8'\n+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d\n+        with:\n+          python-version: '3.8'\n+      - name: Install dependencies\n+        run: |\n+          make\n+          python -m pip uninstall -y \"charset_normalizer\" \"chardet\"\n+      - name: Run tests\n+        run: |\n+          make ci"
+      },
+      {
+        "filename": "src/requests/__init__.py",
+        "status": "modified",
+        "patch": "@@ -83,7 +83,11 @@ def check_compatibility(urllib3_version, chardet_version, charset_normalizer_ver\n         # charset_normalizer >= 2.0.0 < 4.0.0\n         assert (2, 0, 0) <= (major, minor, patch) < (4, 0, 0)\n     else:\n-        raise Exception(\"You need either charset_normalizer or chardet installed\")\n+        warnings.warn(\n+            \"Unable to find acceptable character detection dependency \"\n+            \"(chardet or charset_normalizer).\",\n+            RequestsDependencyWarning,\n+        )\n \n \n def _check_cryptography(cryptography_version):"
+      },
+      {
+        "filename": "src/requests/compat.py",
+        "status": "modified",
+        "patch": "@@ -7,13 +7,28 @@\n compatibility until the next major version.\n \"\"\"\n \n-try:\n-    import chardet\n-except ImportError:\n-    import charset_normalizer as chardet\n-\n+import importlib\n import sys\n \n+# -------------------\n+# Character Detection\n+# -------------------\n+\n+\n+def _resolve_char_detection():\n+    \"\"\"Find supported character detection libraries.\"\"\"\n+    chardet = None\n+    for lib in (\"chardet\", \"charset_normalizer\"):\n+        if chardet is None:\n+            try:\n+                chardet = importlib.import_module(lib)\n+            except ImportError:\n+                pass\n+    return chardet\n+\n+\n+chardet = _resolve_char_detection()\n+\n # -------\n # Pythons\n # -------"
+      },
+      {
+        "filename": "src/requests/models.py",
+        "status": "modified",
+        "patch": "@@ -789,7 +789,12 @@ def next(self):\n     @property\n     def apparent_encoding(self):\n         \"\"\"The apparent encoding, provided by the charset_normalizer or chardet libraries.\"\"\"\n-        return chardet.detect(self.content)[\"encoding\"]\n+        if chardet is not None:\n+            return chardet.detect(self.content)[\"encoding\"]\n+        else:\n+            # If no character detection library is available, we'll fall back\n+            # to a standard Python utf-8 str.\n+            return \"utf-8\"\n \n     def iter_content(self, chunk_size=1, decode_unicode=False):\n         \"\"\"Iterates over the response data.  When stream=True is set on the"
+      },
+      {
+        "filename": "src/requests/packages.py",
+        "status": "modified",
+        "patch": "@@ -1,13 +1,6 @@\n import sys\n \n-try:\n-    import chardet\n-except ImportError:\n-    import warnings\n-\n-    import charset_normalizer as chardet\n-\n-    warnings.filterwarnings(\"ignore\", \"Trying to detect\", module=\"charset_normalizer\")\n+from .compat import chardet\n \n # This code exists for backwards compatibility reasons.\n # I don't like it either. Just look the other way. :)\n@@ -20,11 +13,11 @@\n         if mod == package or mod.startswith(f\"{package}.\"):\n             sys.modules[f\"requests.packages.{mod}\"] = sys.modules[mod]\n \n-target = chardet.__name__\n-for mod in list(sys.modules):\n-    if mod == target or mod.startswith(f\"{target}.\"):\n-        imported_mod = sys.modules[mod]\n-        sys.modules[f\"requests.packages.{mod}\"] = imported_mod\n-        mod = mod.replace(target, \"chardet\")\n-        sys.modules[f\"requests.packages.{mod}\"] = imported_mod\n-# Kinda cool, though, right?\n+if chardet is not None:\n+    target = chardet.__name__\n+    for mod in list(sys.modules):\n+        if mod == target or mod.startswith(f\"{target}.\"):\n+            imported_mod = sys.modules[mod]\n+            sys.modules[f\"requests.packages.{mod}\"] = imported_mod\n+            mod = mod.replace(target, \"chardet\")\n+            sys.modules[f\"requests.packages.{mod}\"] = imported_mod"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "nijel",
+        "path": "src/requests/compat.py",
+        "line": 21,
+        "body": "While this keeps the logic of the earlier code, I think that the library which is required on should be tried first. https://github.com/psf/requests/pull/6714 addresses this.",
+        "diff_hunk": "+import importlib\n import sys\n \n+# -------------------\n+# Character Detection\n+# -------------------\n+\n+\n+def _resolve_char_detection():\n+    \"\"\"Find supported character detection libraries.\"\"\"\n+    chardet = None\n+    for lib in (\"chardet\", \"charset_normalizer\"):",
+        "created_at": "2024-05-22T08:08:55+00:00"
+      }
+    ],
+    "final_sha": "555b870eb19d497ddb67042645420083ec8efb02",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "encode/httpx#3371",
+    "repo": "encode/httpx",
+    "number": 3371,
+    "title": "Review URL percent escaping sets, from whatwg.",
+    "created_at": "2024-10-28T14:37:35+00:00",
+    "head_sha": "798954ec928bfaeee7ef8ed69a86f9d91892ddcd",
+    "files": [
+      {
+        "filename": "httpx/_urlparse.py",
+        "status": "modified",
+        "patch": "@@ -36,6 +36,66 @@\n \n PERCENT_ENCODED_REGEX = re.compile(\"%[A-Fa-f0-9]{2}\")\n \n+# https://url.spec.whatwg.org/#percent-encoded-bytes\n+\n+# The fragment percent-encode set is the C0 control percent-encode set\n+# and U+0020 SPACE, U+0022 (\"), U+003C (<), U+003E (>), and U+0060 (`).\n+FRAG_SAFE = \"\".join(\n+    [chr(i) for i in range(0x20, 0x7F) if i not in (0x20, 0x22, 0x3C, 0x3E, 0x60)]\n+)\n+\n+# The query percent-encode set is the C0 control percent-encode set\n+# and U+0020 SPACE, U+0022 (\"), U+0023 (#), U+003C (<), and U+003E (>).\n+QUERY_SAFE = \"\".join(\n+    [chr(i) for i in range(0x20, 0x7F) if i not in (0x20, 0x22, 0x23, 0x3C, 0x3E)]\n+)\n+\n+# The path percent-encode set is the query percent-encode set\n+# and U+003F (?), U+0060 (`), U+007B ({), and U+007D (}).\n+PATH_SAFE = \"\".join(\n+    [\n+        chr(i)\n+        for i in range(0x20, 0x7F)\n+        if i not in (0x20, 0x22, 0x23, 0x3C, 0x3E) + (0x3F, 0x60, 0x7B, 0x7D)\n+    ]\n+)\n+\n+# The userinfo percent-encode set is the path percent-encode set\n+# and U+002F (/), U+003A (:), U+003B (;), U+003D (=), U+0040 (@),\n+# U+005B ([) to U+005E (^), inclusive, and U+007C (|).\n+USERNAME_SAFE = \"\".join(\n+    [\n+        chr(i)\n+        for i in range(0x20, 0x7F)\n+        if i\n+        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)\n+        + (0x3F, 0x60, 0x7B, 0x7D)\n+        + (0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)\n+    ]\n+)\n+PASSWORD_SAFE = \"\".join(\n+    [\n+        chr(i)\n+        for i in range(0x20, 0x7F)\n+        if i\n+        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)\n+        + (0x3F, 0x60, 0x7B, 0x7D)\n+        + (0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)\n+    ]\n+)\n+# Note... The terminology 'userinfo' percent-encode set in the WHATWG document\n+# is used for the username and password quoting. For the joint userinfo component\n+# we remove U+003A (:) from the safe set.\n+USERINFO_SAFE = \"\".join(\n+    [\n+        chr(i)\n+        for i in range(0x20, 0x7F)\n+        if i\n+        not in (0x20, 0x22, 0x23, 0x3C, 0x3E)\n+        + (0x3F, 0x60, 0x7B, 0x7D)\n+        + (0x2F, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C)\n+    ]\n+)\n \n # {scheme}:      (optional)\n # //{authority}  (optional)\n@@ -182,8 +242,8 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n \n     # Replace \"username\" and/or \"password\" with \"userinfo\".\n     if \"username\" in kwargs or \"password\" in kwargs:\n-        username = quote(kwargs.pop(\"username\", \"\") or \"\")\n-        password = quote(kwargs.pop(\"password\", \"\") or \"\")\n+        username = quote(kwargs.pop(\"username\", \"\") or \"\", safe=USERNAME_SAFE)\n+        password = quote(kwargs.pop(\"password\", \"\") or \"\", safe=PASSWORD_SAFE)\n         kwargs[\"userinfo\"] = f\"{username}:{password}\" if password else username\n \n     # Replace \"raw_path\" with \"path\" and \"query\".\n@@ -238,7 +298,7 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n     authority = kwargs.get(\"authority\", url_dict[\"authority\"]) or \"\"\n     path = kwargs.get(\"path\", url_dict[\"path\"]) or \"\"\n     query = kwargs.get(\"query\", url_dict[\"query\"])\n-    fragment = kwargs.get(\"fragment\", url_dict[\"fragment\"])\n+    frag = kwargs.get(\"fragment\", url_dict[\"fragment\"])\n \n     # The AUTHORITY_REGEX will always match, but may have empty components.\n     authority_match = AUTHORITY_REGEX.match(authority)\n@@ -255,7 +315,7 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n     # We end up with a parsed representation of the URL,\n     # with components that are plain ASCII bytestrings.\n     parsed_scheme: str = scheme.lower()\n-    parsed_userinfo: str = quote(userinfo, safe=SUB_DELIMS + \":\")\n+    parsed_userinfo: str = quote(userinfo, safe=USERINFO_SAFE)\n     parsed_host: str = encode_host(host)\n     parsed_port: int | None = normalize_port(port, scheme)\n \n@@ -267,25 +327,9 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n     if has_scheme or has_authority:\n         path = normalize_path(path)\n \n-    # The GEN_DELIMS set is... : / ? # [ ] @\n-    # These do not need to be percent-quoted unless they serve as delimiters for the\n-    # specific component.\n-    WHATWG_SAFE = '`{}%|^\\\\\"'\n-\n-    # For 'path' we need to drop ? and # from the GEN_DELIMS set.\n-    parsed_path: str = quote(path, safe=SUB_DELIMS + WHATWG_SAFE + \":/[]@\")\n-    # For 'query' we need to drop '#' from the GEN_DELIMS set.\n-    parsed_query: str | None = (\n-        None\n-        if query is None\n-        else quote(query, safe=SUB_DELIMS + WHATWG_SAFE + \":/?[]@\")\n-    )\n-    # For 'fragment' we can include all of the GEN_DELIMS set.\n-    parsed_fragment: str | None = (\n-        None\n-        if fragment is None\n-        else quote(fragment, safe=SUB_DELIMS + WHATWG_SAFE + \":/?#[]@\")\n-    )\n+    parsed_path: str = quote(path, safe=PATH_SAFE)\n+    parsed_query: str | None = None if query is None else quote(query, safe=QUERY_SAFE)\n+    parsed_frag: str | None = None if frag is None else quote(frag, safe=FRAG_SAFE)\n \n     # The parsed ASCII bytestrings are our canonical form.\n     # All properties of the URL are derived from these.\n@@ -296,7 +340,7 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n         parsed_port,\n         parsed_path,\n         parsed_query,\n-        parsed_fragment,\n+        parsed_frag,\n     )\n \n "
+      },
+      {
+        "filename": "tests/models/test_url.py",
+        "status": "modified",
+        "patch": "@@ -294,7 +294,7 @@ def test_param_with_space():\n     assert str(url) == \"http://webservice?u=with%20spaces\"\n \n \n-def test_param_does_not_require_encoding():\n+def test_param_requires_encoding():\n     # Params passed as form key-value pairs should be escaped.\n     url = httpx.URL(\"http://webservice\", params={\"u\": \"%\"})\n     assert str(url) == \"http://webservice?u=%25\"\n@@ -614,10 +614,10 @@ def test_url_copywith_userinfo_subcomponents():\n     }\n     url = httpx.URL(\"https://example.org\")\n     new = url.copy_with(**copy_with_kwargs)\n-    assert str(new) == \"https://tom%40example.org:abc123%40%20%25@example.org\"\n+    assert str(new) == \"https://tom%40example.org:abc123%40%20%@example.org\"\n     assert new.username == \"tom@example.org\"\n     assert new.password == \"abc123@ %\"\n-    assert new.userinfo == b\"tom%40example.org:abc123%40%20%25\"\n+    assert new.userinfo == b\"tom%40example.org:abc123%40%20%\"\n \n \n def test_url_copywith_invalid_component():"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "elupus",
+        "path": "tests/models/test_url.py",
+        "line": 620,
+        "body": "This looks weird. I could be wrong. But should the userinfo field contain partial escapes? The trialing % sign change here seem odd.",
+        "diff_hunk": "@@ -614,10 +614,10 @@ def test_url_copywith_userinfo_subcomponents():\n     }\n     url = httpx.URL(\"https://example.org\")\n     new = url.copy_with(**copy_with_kwargs)\n-    assert str(new) == \"https://tom%40example.org:abc123%40%20%25@example.org\"\n+    assert str(new) == \"https://tom%40example.org:abc123%40%20%@example.org\"\n     assert new.username == \"tom@example.org\"\n     assert new.password == \"abc123@ %\"\n-    assert new.userinfo == b\"tom%40example.org:abc123%40%20%25\"\n+    assert new.userinfo == b\"tom%40example.org:abc123%40%20%\"",
+        "created_at": "2024-12-23T11:57:19+00:00"
+      }
+    ],
+    "final_sha": "798954ec928bfaeee7ef8ed69a86f9d91892ddcd",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "encode/httpx#3312",
+    "repo": "encode/httpx",
+    "number": 3312,
+    "title": "Clarified error when header value is None",
+    "created_at": "2024-09-23T18:12:25+00:00",
+    "head_sha": "d8669a00214991dad46790de74922995cf529f0e",
+    "files": [
+      {
+        "filename": "httpx/_utils.py",
+        "status": "modified",
+        "patch": "@@ -50,6 +50,8 @@ def normalize_header_value(value: str | bytes, encoding: str | None = None) -> b\n     \"\"\"\n     if isinstance(value, bytes):\n         return value\n+    if not isinstance(value, str):\n+        raise TypeError(f\"Header value must be str or bytes, not {type(value)}\")\n     return value.encode(encoding or \"ascii\")\n \n "
+      },
+      {
+        "filename": "tests/test_utils.py",
+        "status": "modified",
+        "patch": "@@ -11,6 +11,7 @@\n     URLPattern,\n     get_ca_bundle_from_env,\n     get_environment_proxies,\n+    normalize_header_value,\n )\n \n from .common import TESTS_DIR\n@@ -300,6 +301,24 @@ def test_url_matches(pattern, url, expected):\n     assert pattern.matches(httpx.URL(url)) == expected\n \n \n+@pytest.mark.parametrize(\n+    [\"value\", \"expected\"],\n+    [\n+        (b\"value\", b\"value\"),\n+        (b\"success\", b\"success\"),\n+    ],\n+)\n+def test_normalize_header_value(value, expected):\n+    assert normalize_header_value(value) == expected\n+\n+\n+def test_normalize_header_incorrect_value():\n+    with pytest.raises(\n+        TypeError, match=f\"Header value must be str or bytes, not {type(None)}\"\n+    ):\n+        normalize_header_value(None)  # type: ignore\n+\n+\n def test_pattern_priority():\n     matchers = [\n         URLPattern(\"all://\"),"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "lovelydinosaur",
+        "path": "tests/test_utils.py",
+        "line": 319,
+        "body": "Could we have these tests in `tests/client/test_headers.py` with the testing against `httpx.Header(...)` instead of against the internal API?",
+        "diff_hunk": "+        (b\"success\", b\"success\"),\n+    ],\n+)\n+def test_normalize_header_value(value, expected):\n+    assert normalize_header_value(value) == expected\n+\n+\n+def test_normalize_header_incorrect_value():\n+    with pytest.raises(\n+        TypeError, match=f\"Header value must be str or bytes, not {type(None)}\"\n+    ):\n+        normalize_header_value(None)  # type: ignore",
+        "created_at": "2024-09-26T14:31:17+00:00"
+      }
+    ],
+    "final_sha": "86a258262fc0b0c20feb1daf0735b4d007c8d3b1",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "encode/httpx#3250",
+    "repo": "encode/httpx",
+    "number": 3250,
+    "title": "Improve InvalidURL error message.",
+    "created_at": "2024-07-25T10:09:52+00:00",
+    "head_sha": "33c4d96a7304f16109fb09511525a54dfdafa8bb",
+    "files": [
+      {
+        "filename": "CHANGELOG.md",
+        "status": "modified",
+        "patch": "@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).\n \n ### Fixed\n \n+* Improved error messaging for `InvalidURL` exceptions. (#3250)\n * Fix `app` type signature in `ASGITransport`. (#3109)\n \n ## 0.27.0 (21st February, 2024)"
+      },
+      {
+        "filename": "httpx/_urlparse.py",
+        "status": "modified",
+        "patch": "@@ -160,7 +160,12 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n     # If a URL includes any ASCII control characters including \\t, \\r, \\n,\n     # then treat it as invalid.\n     if any(char.isascii() and not char.isprintable() for char in url):\n-        raise InvalidURL(\"Invalid non-printable ASCII character in URL\")\n+        char = [char for char in url if char.isascii() and not char.isprintable()][0]\n+        idx = url.find(char)\n+        error = (\n+            f\"Invalid non-printable ASCII character in URL, {char!r} at position {idx}.\"\n+        )\n+        raise InvalidURL(error)\n \n     # Some keyword arguments require special handling.\n     # ------------------------------------------------\n@@ -205,9 +210,15 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n             # If a component includes any ASCII control characters including \\t, \\r, \\n,\n             # then treat it as invalid.\n             if any(char.isascii() and not char.isprintable() for char in value):\n-                raise InvalidURL(\n-                    f\"Invalid non-printable ASCII character in URL component '{key}'\"\n+                char = [\n+                    char for char in value if char.isascii() and not char.isprintable()\n+                ][0]\n+                idx = value.find(char)\n+                error = (\n+                    f\"Invalid non-printable ASCII character in URL {key} component, \"\n+                    f\"{char!r} at position {idx}.\"\n                 )\n+                raise InvalidURL(error)\n \n             # Ensure that keyword arguments match as a valid regex.\n             if not COMPONENT_REGEX[key].fullmatch(value):"
+      },
+      {
+        "filename": "tests/models/test_url.py",
+        "status": "modified",
+        "patch": "@@ -367,15 +367,17 @@ def test_url_excessively_long_component():\n def test_url_non_printing_character_in_url():\n     with pytest.raises(httpx.InvalidURL) as exc:\n         httpx.URL(\"https://www.example.com/\\n\")\n-    assert str(exc.value) == \"Invalid non-printable ASCII character in URL\"\n+    assert str(exc.value) == (\n+        \"Invalid non-printable ASCII character in URL, '\\\\n' at position 24.\"\n+    )\n \n \n def test_url_non_printing_character_in_component():\n     with pytest.raises(httpx.InvalidURL) as exc:\n         httpx.URL(\"https://www.example.com\", path=\"/\\n\")\n-    assert (\n-        str(exc.value)\n-        == \"Invalid non-printable ASCII character in URL component 'path'\"\n+    assert str(exc.value) == (\n+        \"Invalid non-printable ASCII character in URL path component, \"\n+        \"'\\\\n' at position 1.\"\n     )\n \n "
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "adriangb",
+        "path": "httpx/_urlparse.py",
+        "line": 163,
+        "body": "Could this be done lazily without materializing the list?",
+        "diff_hunk": "@@ -160,7 +160,12 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n     # If a URL includes any ASCII control characters including \\t, \\r, \\n,\n     # then treat it as invalid.\n     if any(char.isascii() and not char.isprintable() for char in url):\n-        raise InvalidURL(\"Invalid non-printable ASCII character in URL\")\n+        char = [char for char in url if char.isascii() and not char.isprintable()][0]",
+        "created_at": "2024-07-26T04:31:08+00:00"
+      },
+      {
+        "author": "adriangb",
+        "path": "httpx/_urlparse.py",
+        "line": 215,
+        "body": "Same here. This could be a small utility function as well (it's duplicated in 2 places, I'm okay keeping it duplicated).",
+        "diff_hunk": "@@ -205,9 +210,15 @@ def urlparse(url: str = \"\", **kwargs: str | None) -> ParseResult:\n             # If a component includes any ASCII control characters including \\t, \\r, \\n,\n             # then treat it as invalid.\n             if any(char.isascii() and not char.isprintable() for char in value):\n-                raise InvalidURL(\n-                    f\"Invalid non-printable ASCII character in URL component '{key}'\"\n+                char = [\n+                    char for char in value if char.isascii() and not char.isprintable()\n+                ][0]",
+        "created_at": "2024-07-26T04:31:43+00:00"
+      }
+    ],
+    "final_sha": "c6f51c73a67acc5ca664bb19285948921239f242",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "encode/httpx#3245",
+    "repo": "encode/httpx",
+    "number": 3245,
+    "title": "Clean up URL signature.",
+    "created_at": "2024-07-23T13:52:16+00:00",
+    "head_sha": "34e2ff1ad219d3849dbe4649a8ab31a6401b2ca5",
+    "files": [
+      {
+        "filename": "httpx/_api.py",
+        "status": "modified",
+        "patch": "@@ -18,9 +18,9 @@\n     RequestData,\n     RequestFiles,\n     TimeoutTypes,\n-    URLTypes,\n     VerifyTypes,\n )\n+from ._urls import URL\n \n __all__ = [\n     \"delete\",\n@@ -37,7 +37,7 @@\n \n def request(\n     method: str,\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     content: RequestContent | None = None,\n@@ -132,7 +132,7 @@ def request(\n @contextmanager\n def stream(\n     method: str,\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     content: RequestContent | None = None,\n@@ -185,7 +185,7 @@ def stream(\n \n \n def get(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     headers: HeaderTypes | None = None,\n@@ -225,7 +225,7 @@ def get(\n \n \n def options(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     headers: HeaderTypes | None = None,\n@@ -265,7 +265,7 @@ def options(\n \n \n def head(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     headers: HeaderTypes | None = None,\n@@ -305,7 +305,7 @@ def head(\n \n \n def post(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     content: RequestContent | None = None,\n     data: RequestData | None = None,\n@@ -350,7 +350,7 @@ def post(\n \n \n def put(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     content: RequestContent | None = None,\n     data: RequestData | None = None,\n@@ -395,7 +395,7 @@ def put(\n \n \n def patch(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     content: RequestContent | None = None,\n     data: RequestData | None = None,\n@@ -440,7 +440,7 @@ def patch(\n \n \n def delete(\n-    url: URLTypes,\n+    url: URL | str,\n     *,\n     params: QueryParamTypes | None = None,\n     headers: HeaderTypes | None = None,"
+      },
+      {
+        "filename": "httpx/_client.py",
+        "status": "modified",
+        "patch": "@@ -46,7 +46,6 @@\n     RequestFiles,\n     SyncByteStream,\n     TimeoutTypes,\n-    URLTypes,\n     VerifyTypes,\n )\n from ._urls import URL, QueryParams\n@@ -172,7 +171,7 @@ def __init__(\n         follow_redirects: bool = False,\n         max_redirects: int = DEFAULT_MAX_REDIRECTS,\n         event_hooks: None | (typing.Mapping[str, list[EventHook]]) = None,\n-        base_url: URLTypes = \"\",\n+        base_url: URL | str = \"\",\n         trust_env: bool = True,\n         default_encoding: str | typing.Callable[[bytes], str] = \"utf-8\",\n     ) -> None:\n@@ -273,7 +272,7 @@ def base_url(self) -> URL:\n         return self._base_url\n \n     @base_url.setter\n-    def base_url(self, url: URLTypes) -> None:\n+    def base_url(self, url: URL | str) -> None:\n         self._base_url = self._enforce_trailing_slash(URL(url))\n \n     @property\n@@ -321,7 +320,7 @@ def params(self, params: QueryParamTypes) -> None:\n     def build_request(\n         self,\n         method: str,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -369,7 +368,7 @@ def build_request(\n             extensions=extensions,\n         )\n \n-    def _merge_url(self, url: URLTypes) -> URL:\n+    def _merge_url(self, url: URL | str) -> URL:\n         \"\"\"\n         Merge a URL argument together with any 'base_url' on the client,\n         to create the URL used for the outgoing request.\n@@ -645,7 +644,7 @@ def __init__(\n         limits: Limits = DEFAULT_LIMITS,\n         max_redirects: int = DEFAULT_MAX_REDIRECTS,\n         event_hooks: None | (typing.Mapping[str, list[EventHook]]) = None,\n-        base_url: URLTypes = \"\",\n+        base_url: URL | str = \"\",\n         transport: BaseTransport | None = None,\n         app: typing.Callable[..., typing.Any] | None = None,\n         trust_env: bool = True,\n@@ -784,7 +783,7 @@ def _transport_for_url(self, url: URL) -> BaseTransport:\n     def request(\n         self,\n         method: str,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -841,7 +840,7 @@ def request(\n     def stream(\n         self,\n         method: str,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1049,7 +1048,7 @@ def _send_single_request(self, request: Request) -> Response:\n \n     def get(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1078,7 +1077,7 @@ def get(\n \n     def options(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1107,7 +1106,7 @@ def options(\n \n     def head(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1136,7 +1135,7 @@ def head(\n \n     def post(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1173,7 +1172,7 @@ def post(\n \n     def put(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1210,7 +1209,7 @@ def put(\n \n     def patch(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1247,7 +1246,7 @@ def patch(\n \n     def delete(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1392,7 +1391,7 @@ def __init__(\n         limits: Limits = DEFAULT_LIMITS,\n         max_redirects: int = DEFAULT_MAX_REDIRECTS,\n         event_hooks: None | (typing.Mapping[str, list[EventHook]]) = None,\n-        base_url: URLTypes = \"\",\n+        base_url: URL | str = \"\",\n         transport: AsyncBaseTransport | None = None,\n         app: typing.Callable[..., typing.Any] | None = None,\n         trust_env: bool = True,\n@@ -1531,7 +1530,7 @@ def _transport_for_url(self, url: URL) -> AsyncBaseTransport:\n     async def request(\n         self,\n         method: str,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1589,7 +1588,7 @@ async def request(\n     async def stream(\n         self,\n         method: str,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1797,7 +1796,7 @@ async def _send_single_request(self, request: Request) -> Response:\n \n     async def get(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1826,7 +1825,7 @@ async def get(\n \n     async def options(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1855,7 +1854,7 @@ async def options(\n \n     async def head(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,\n@@ -1884,7 +1883,7 @@ async def head(\n \n     async def post(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1921,7 +1920,7 @@ async def post(\n \n     async def put(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1958,7 +1957,7 @@ async def put(\n \n     async def patch(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         content: RequestContent | None = None,\n         data: RequestData | None = None,\n@@ -1995,7 +1994,7 @@ async def patch(\n \n     async def delete(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         params: QueryParamTypes | None = None,\n         headers: HeaderTypes | None = None,"
+      },
+      {
+        "filename": "httpx/_config.py",
+        "status": "modified",
+        "patch": "@@ -10,7 +10,7 @@\n \n from ._compat import set_minimum_tls_version_1_2\n from ._models import Headers\n-from ._types import CertTypes, HeaderTypes, TimeoutTypes, URLTypes, VerifyTypes\n+from ._types import CertTypes, HeaderTypes, TimeoutTypes, VerifyTypes\n from ._urls import URL\n from ._utils import get_ca_bundle_from_env\n \n@@ -325,7 +325,7 @@ def __repr__(self) -> str:\n class Proxy:\n     def __init__(\n         self,\n-        url: URLTypes,\n+        url: URL | str,\n         *,\n         ssl_context: ssl.SSLContext | None = None,\n         auth: tuple[str, str] | None = None,"
+      },
+      {
+        "filename": "httpx/_types.py",
+        "status": "modified",
+        "patch": "@@ -43,8 +43,6 @@\n     ],\n )\n \n-URLTypes = Union[\"URL\", str]\n-\n QueryParamTypes = Union[\n     \"QueryParams\",\n     Mapping[str, Union[PrimitiveData, Sequence[PrimitiveData]]],\n@@ -78,8 +76,8 @@\n     Tuple[Optional[float], Optional[float], Optional[float], Optional[float]],\n     \"Timeout\",\n ]\n-ProxyTypes = Union[URLTypes, \"Proxy\"]\n-ProxiesTypes = Union[ProxyTypes, Dict[URLTypes, Union[None, ProxyTypes]]]\n+ProxyTypes = Union[\"URL\", str, \"Proxy\"]\n+ProxiesTypes = Union[ProxyTypes, Dict[Union[\"URL\", str], Union[None, ProxyTypes]]]\n \n AuthTypes = Union[\n     Tuple[Union[str, bytes], Union[str, bytes]],"
+      },
+      {
+        "filename": "httpx/_urls.py",
+        "status": "modified",
+        "patch": "@@ -5,7 +5,7 @@\n \n import idna\n \n-from ._types import QueryParamTypes, RawURL, URLTypes\n+from ._types import QueryParamTypes, RawURL\n from ._urlparse import urlencode, urlparse\n from ._utils import primitive_value_to_str\n \n@@ -367,7 +367,7 @@ def copy_remove_param(self, key: str) -> URL:\n     def copy_merge_params(self, params: QueryParamTypes) -> URL:\n         return self.copy_with(params=self.params.merge(params))\n \n-    def join(self, url: URLTypes) -> URL:\n+    def join(self, url: URL | str) -> URL:\n         \"\"\"\n         Return an absolute URL, using this URL as the base.\n "
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "T-256",
+        "path": "httpx/_api.py",
+        "line": 23,
+        "body": "could it be under `typing.TYPE_CHECKING`?",
+        "diff_hunk": "@@ -18,9 +18,9 @@\n     RequestData,\n     RequestFiles,\n     TimeoutTypes,\n-    URLTypes,\n     VerifyTypes,\n )\n+from ._urls import URL",
+        "created_at": "2024-07-23T14:30:49+00:00"
+      }
+    ],
+    "final_sha": "9013f35928cda593221fb64949b30c501ffc152a",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "encode/httpx#3045",
+    "repo": "encode/httpx",
+    "number": 3045,
+    "title": "Fix RFC 2069 mode digest authentication",
+    "created_at": "2024-01-06T22:34:10+00:00",
+    "head_sha": "07f42f2a2d7ff63c3a61e5feebc89727faab030e",
+    "files": [
+      {
+        "filename": "httpx/_auth.py",
+        "status": "modified",
+        "patch": "@@ -280,7 +280,7 @@ def digest(data: bytes) -> bytes:\n \n         qop = self._resolve_qop(challenge.qop, request=request)\n         if qop is None:\n-            digest_data = [HA1, challenge.nonce, HA2]\n+            digest_data = [challenge.nonce, HA2]\n         else:\n             digest_data = [challenge.nonce, nc_value, cnonce, qop, HA2]\n         key_digest = b\":\".join(digest_data)"
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "lovelydinosaur",
+        "path": "httpx/_auth.py",
+        "line": 285,
+        "body": "Looking at the curl code, seems like this change should be the other way around(?)...\r\n\r\n```python\r\n        if qop is None:\r\n            digest_data = [HA1, challenge.nonce, HA2]\r\n        else:\r\n            digest_data = [HA1, challenge.nonce, nc_value, cnonce, qop, HA2]\r\n```\r\n\r\nAnd then...\r\n\r\n```python\r\n        format_args = {\r\n            \"username\": self._username,\r\n            \"realm\": challenge.realm,\r\n            \"nonce\": challenge.nonce,\r\n            \"uri\": path,\r\n            \"response\": digest(key_digest),\r\n            \"algorithm\": challenge.algorithm.encode(),\r\n        }\r\n```",
+        "diff_hunk": "@@ -280,7 +280,7 @@ def digest(data: bytes) -> bytes:\n \n         qop = self._resolve_qop(challenge.qop, request=request)\n         if qop is None:\n-            digest_data = [HA1, challenge.nonce, HA2]\n+            digest_data = [challenge.nonce, HA2]\n         else:\n             digest_data = [challenge.nonce, nc_value, cnonce, qop, HA2]",
+        "created_at": "2024-01-08T11:01:34+00:00"
+      }
+    ],
+    "final_sha": "988d33dbb50d17a95016143348fcebce0b15a0ab",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "encode/httpx#2990",
+    "repo": "encode/httpx",
+    "number": 2990,
+    "title": "Cleanup URL percent-encoding behavior.",
+    "created_at": "2023-12-07T16:59:01+00:00",
+    "head_sha": "e3532aa68043b5a52d3ef6c2e8b7b6ba09bcf638",
+    "files": [
+      {
+        "filename": "httpx/_urlparse.py",
+        "status": "modified",
+        "patch": "@@ -260,10 +260,8 @@ def urlparse(url: str = \"\", **kwargs: typing.Optional[str]) -> ParseResult:\n     # For 'path' we need to drop ? and # from the GEN_DELIMS set.\n     parsed_path: str = quote(path, safe=SUB_DELIMS + \":/[]@\")\n     # For 'query' we need to drop '#' from the GEN_DELIMS set.\n-    # We also exclude '/' because it is more robust to replace it with a percent\n-    # encoding despite it not being a requirement of the spec.\n     parsed_query: typing.Optional[str] = (\n-        None if query is None else quote(query, safe=SUB_DELIMS + \":?[]@\")\n+        None if query is None else quote(query, safe=SUB_DELIMS + \":/?[]@\")\n     )\n     # For 'fragment' we can include all of the GEN_DELIMS set.\n     parsed_fragment: typing.Optional[str] = (\n@@ -432,13 +430,12 @@ def is_safe(string: str, safe: str = \"/\") -> bool:\n         if char not in NON_ESCAPED_CHARS:\n             return False\n \n-    # Any '%' characters must be valid '%xx' escape sequences.\n-    return string.count(\"%\") == len(PERCENT_ENCODED_REGEX.findall(string))\n+    return True\n \n \n-def quote(string: str, safe: str = \"/\") -> str:\n+def percent_encoded(string: str, safe: str = \"/\") -> str:\n     \"\"\"\n-    Use percent-encoding to quote a string if required.\n+    Use percent-encoding to quote a string.\n     \"\"\"\n     if is_safe(string, safe=safe):\n         return string\n@@ -449,6 +446,39 @@ def quote(string: str, safe: str = \"/\") -> str:\n     )\n \n \n+def quote(string: str, safe: str = \"/\") -> str:\n+    \"\"\"\n+    Use percent-encoding to quote a string, omitting existing '%xx' escape sequences.\n+\n+    See: https://www.rfc-editor.org/rfc/rfc3986#section-2.1\n+\n+    * `string`: The string to be percent-escaped.\n+    * `safe`: A string containing characters that may be treated as safe, and do not\n+        need to be escaped. Unreserved characters are always treated as safe.\n+        See: https://www.rfc-editor.org/rfc/rfc3986#section-2.3\n+    \"\"\"\n+    parts = []\n+    current_position = 0\n+    for match in re.finditer(PERCENT_ENCODED_REGEX, string):\n+        start_position, end_position = match.start(), match.end()\n+        matched_text = match.group(0)\n+        # Add any text up to the '%xx' escape sequence.\n+        if start_position != current_position:\n+            leading_text = string[current_position:start_position]\n+            parts.append(percent_encoded(leading_text, safe=safe))\n+\n+        # Add the '%xx' escape sequence.\n+        parts.append(matched_text)\n+        current_position = end_position\n+\n+    # Add any text after the final '%xx' escape sequence.\n+    if current_position != len(string):\n+        trailing_text = string[current_position:]\n+        parts.append(percent_encoded(trailing_text, safe=safe))\n+\n+    return \"\".join(parts)\n+\n+\n def urlencode(items: typing.List[typing.Tuple[str, str]]) -> str:\n     \"\"\"\n     We can use a much simpler version of the stdlib urlencode here because\n@@ -464,4 +494,9 @@ def urlencode(items: typing.List[typing.Tuple[str, str]]) -> str:\n     - https://github.com/encode/httpx/issues/2721\n     - https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode\n     \"\"\"\n-    return \"&\".join([quote(k, safe=\"\") + \"=\" + quote(v, safe=\"\") for k, v in items])\n+    return \"&\".join(\n+        [\n+            percent_encoded(k, safe=\"\") + \"=\" + percent_encoded(v, safe=\"\")\n+            for k, v in items\n+        ]\n+    )"
+      },
+      {
+        "filename": "tests/models/test_url.py",
+        "status": "modified",
+        "patch": "@@ -70,56 +70,92 @@ def test_url_no_authority():\n # Tests for percent encoding across path, query, and fragment...\n \n \n-def test_path_percent_encoding():\n-    # Test percent encoding for SUB_DELIMS ALPHA NUM and allowable GEN_DELIMS\n-    url = httpx.URL(\"https://example.com/!$&'()*+,;= abc ABC 123 :/[]@\")\n-    assert url.raw_path == b\"/!$&'()*+,;=%20abc%20ABC%20123%20:/[]@\"\n-    assert url.path == \"/!$&'()*+,;= abc ABC 123 :/[]@\"\n-    assert url.query == b\"\"\n-    assert url.fragment == \"\"\n-\n-\n-def test_query_percent_encoding():\n-    # Test percent encoding for SUB_DELIMS ALPHA NUM and allowable GEN_DELIMS\n-    url = httpx.URL(\"https://example.com/?!$&'()*+,;= abc ABC 123 :/[]@\" + \"?\")\n-    assert url.raw_path == b\"/?!$&'()*+,;=%20abc%20ABC%20123%20:%2F[]@?\"\n-    assert url.path == \"/\"\n-    assert url.query == b\"!$&'()*+,;=%20abc%20ABC%20123%20:%2F[]@?\"\n-    assert url.fragment == \"\"\n-\n-\n-def test_fragment_percent_encoding():\n-    # Test percent encoding for SUB_DELIMS ALPHA NUM and allowable GEN_DELIMS\n-    url = httpx.URL(\"https://example.com/#!$&'()*+,;= abc ABC 123 :/[]@\" + \"?#\")\n-    assert url.raw_path == b\"/\"\n-    assert url.path == \"/\"\n-    assert url.query == b\"\"\n-    assert url.fragment == \"!$&'()*+,;= abc ABC 123 :/[]@?#\"\n+@pytest.mark.parametrize(\n+    \"url,raw_path,path,query,fragment\",\n+    [\n+        # URL with unescaped chars in path.\n+        (\n+            \"https://example.com/!$&'()*+,;= abc ABC 123 :/[]@\",\n+            b\"/!$&'()*+,;=%20abc%20ABC%20123%20:/[]@\",\n+            \"/!$&'()*+,;= abc ABC 123 :/[]@\",\n+            b\"\",\n+            \"\",\n+        ),\n+        # URL with escaped chars in path.\n+        (\n+            \"https://example.com/!$&'()*+,;=%20abc%20ABC%20123%20:/[]@\",\n+            b\"/!$&'()*+,;=%20abc%20ABC%20123%20:/[]@\",\n+            \"/!$&'()*+,;= abc ABC 123 :/[]@\",\n+            b\"\",\n+            \"\",\n+        ),\n+        # URL with mix of unescaped and escaped chars in path.\n+        # WARNING: This has the incorrect behaviour, adding the test as an interim step.\n+        (\n+            \"https://example.com/ %61%62%63\",\n+            b\"/%20%61%62%63\",\n+            \"/ abc\",\n+            b\"\",\n+            \"\",\n+        ),\n+        # URL with unescaped chars in query.\n+        (\n+            \"https://example.com/?!$&'()*+,;= abc ABC 123 :/[]@?\",\n+            b\"/?!$&'()*+,;=%20abc%20ABC%20123%20:/[]@?\",\n+            \"/\",\n+            b\"!$&'()*+,;=%20abc%20ABC%20123%20:/[]@?\",\n+            \"\",\n+        ),\n+        # URL with escaped chars in query.\n+        (\n+            \"https://example.com/?!$&%27()*+,;=%20abc%20ABC%20123%20:%2F[]@?\",\n+            b\"/?!$&%27()*+,;=%20abc%20ABC%20123%20:%2F[]@?\",\n+            \"/\",\n+            b\"!$&%27()*+,;=%20abc%20ABC%20123%20:%2F[]@?\",\n+            \"\",\n+        ),\n+        # URL with mix of unescaped and escaped chars in query.\n+        (\n+            \"https://example.com/?%20%97%98%99\",\n+            b\"/?%20%97%98%99\",\n+            \"/\",\n+            b\"%20%97%98%99\",\n+            \"\",\n+        ),\n+        # URL encoding characters in fragment.\n+        (\n+            \"https://example.com/#!$&'()*+,;= abc ABC 123 :/[]@?#\",\n+            b\"/\",\n+            \"/\",\n+            b\"\",\n+            \"!$&'()*+,;= abc ABC 123 :/[]@?#\",\n+        ),\n+    ],\n+)\n+def test_path_query_fragment(url, raw_path, path, query, fragment):\n+    url = httpx.URL(url)\n+    assert url.raw_path == raw_path\n+    assert url.path == path\n+    assert url.query == query\n+    assert url.fragment == fragment\n \n \n def test_url_query_encoding():\n     \"\"\"\n-    URL query parameters should use '%20' to encoding spaces,\n+    URL query parameters should use '%20' for encoding spaces,\n     and should treat '/' as a safe character. This behaviour differs\n     across clients, but we're matching browser behaviour here.\n \n     See https://github.com/encode/httpx/issues/2536\n     and https://github.com/encode/httpx/discussions/2460\n     \"\"\"\n     url = httpx.URL(\"https://www.example.com/?a=b c&d=e/f\")\n-    assert url.raw_path == b\"/?a=b%20c&d=e%2Ff\"\n+    assert url.raw_path == b\"/?a=b%20c&d=e/f\"\n \n     url = httpx.URL(\"https://www.example.com/\", params={\"a\": \"b c\", \"d\": \"e/f\"})\n     assert url.raw_path == b\"/?a=b%20c&d=e%2Ff\"\n \n \n-def test_url_with_url_encoded_path():\n-    url = httpx.URL(\"https://www.example.com/path%20to%20somewhere\")\n-    assert url.path == \"/path to somewhere\"\n-    assert url.query == b\"\"\n-    assert url.raw_path == b\"/path%20to%20somewhere\"\n-\n-\n def test_url_params():\n     url = httpx.URL(\"https://example.org:123/path/to/somewhere\", params={\"a\": \"123\"})\n     assert str(url) == \"https://example.org:123/path/to/somewhere?a=123\""
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "karpetrosyan",
+        "path": "httpx/_urlparse.py",
+        "line": 449,
+        "body": "I believe we should also add unit tests for these functions, rather than simply testing them with `httpx.URL`. \r\nThis would be a more robust approach, in my opinion.",
+        "diff_hunk": "@@ -449,6 +446,39 @@ def quote(string: str, safe: str = \"/\") -> str:\n     )\n \n \n+def quote(string: str, safe: str = \"/\") -> str:",
+        "created_at": "2023-12-13T10:55:47+00:00"
+      },
+      {
+        "author": "T-256",
+        "path": "httpx/_urlparse.py",
+        "line": 449,
+        "body": "IMO current approach is fine.\r\n\r\n> This is clearly a code-smell, because our test cases ought to be tests against our public API, rather than testing implementation details. Perhaps there's some cases where it's a necessary hack, but... perhaps not?\r\n\r\n\r\nfrom https://github.com/encode/httpx/issues/2492#issue-1478857204",
+        "diff_hunk": "@@ -449,6 +446,39 @@ def quote(string: str, safe: str = \"/\") -> str:\n     )\n \n \n+def quote(string: str, safe: str = \"/\") -> str:",
+        "created_at": "2023-12-13T20:23:49+00:00"
+      },
+      {
+        "author": "zanieb",
+        "path": "httpx/_urlparse.py",
+        "line": 449,
+        "body": "I agree testing the public API should be sufficient unless something private is particularly expensive to test via the public API.",
+        "diff_hunk": "@@ -449,6 +446,39 @@ def quote(string: str, safe: str = \"/\") -> str:\n     )\n \n \n+def quote(string: str, safe: str = \"/\") -> str:",
+        "created_at": "2023-12-14T00:20:26+00:00"
+      },
+      {
+        "author": "karpetrosyan",
+        "path": "httpx/_urlparse.py",
+        "line": 449,
+        "body": "It's a matter of preference, but if we encounter regression in our `httpx.URL` tests, we will go through these functions and find the method that isn't working properly, which is why unit tests are useful.",
+        "diff_hunk": "@@ -449,6 +446,39 @@ def quote(string: str, safe: str = \"/\") -> str:\n     )\n \n \n+def quote(string: str, safe: str = \"/\") -> str:",
+        "created_at": "2023-12-14T05:14:41+00:00"
+      }
+    ],
+    "final_sha": "53d15f192961386728826b15ce2939b394eaa8f5",
+    "snapshot_is_final": false
+  },
+  {
+    "key": "encode/httpx#2911",
+    "repo": "encode/httpx",
+    "number": 2911,
+    "title": "Cleanup `response.json()` method.",
+    "created_at": "2023-10-30T14:34:20+00:00",
+    "head_sha": "51c579ab242056940741f3e79160e103e6905354",
+    "files": [
+      {
+        "filename": "httpx/_models.py",
+        "status": "modified",
+        "patch": "@@ -43,7 +43,6 @@\n )\n from ._urls import URL\n from ._utils import (\n-    guess_json_utf,\n     is_known_encoding,\n     normalize_header_key,\n     normalize_header_value,\n@@ -759,11 +758,7 @@ def raise_for_status(self) -> \"Response\":\n         raise HTTPStatusError(message, request=request, response=self)\n \n     def json(self, **kwargs: typing.Any) -> typing.Any:\n-        if self.charset_encoding is None and self.content and len(self.content) > 3:\n-            encoding = guess_json_utf(self.content)\n-            if encoding is not None:\n-                return jsonlib.loads(self.content.decode(encoding), **kwargs)\n-        return jsonlib.loads(self.text, **kwargs)\n+        return jsonlib.loads(self.content, **kwargs)\n \n     @property\n     def cookies(self) -> \"Cookies\":"
+      },
+      {
+        "filename": "httpx/_utils.py",
+        "status": "modified",
+        "patch": "@@ -91,41 +91,6 @@ def replacer(match: typing.Match[str]) -> str:\n     return f'{name}=\"{value}\"'.encode()\n \n \n-# Null bytes; no need to recreate these on each call to guess_json_utf\n-_null = b\"\\x00\"\n-_null2 = _null * 2\n-_null3 = _null * 3\n-\n-\n-def guess_json_utf(data: bytes) -> typing.Optional[str]:\n-    # JSON always starts with two ASCII characters, so detection is as\n-    # easy as counting the nulls and from their location and count\n-    # determine the encoding. Also detect a BOM, if present.\n-    sample = data[:4]\n-    if sample in (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE):\n-        return \"utf-32\"  # BOM included\n-    if sample[:3] == codecs.BOM_UTF8:\n-        return \"utf-8-sig\"  # BOM included, MS style (discouraged)\n-    if sample[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):\n-        return \"utf-16\"  # BOM included\n-    nullcount = sample.count(_null)\n-    if nullcount == 0:\n-        return \"utf-8\"\n-    if nullcount == 2:\n-        if sample[::2] == _null2:  # 1st and 3rd are null\n-            return \"utf-16-be\"\n-        if sample[1::2] == _null2:  # 2nd and 4th are null\n-            return \"utf-16-le\"\n-        # Did not detect 2 valid UTF-16 ascii-range characters\n-    if nullcount == 3:\n-        if sample[:3] == _null3:\n-            return \"utf-32-be\"\n-        if sample[1:] == _null3:\n-            return \"utf-32-le\"\n-        # Did not detect a valid UTF-32 ascii-range character\n-    return None\n-\n-\n def get_ca_bundle_from_env() -> typing.Optional[str]:\n     if \"SSL_CERT_FILE\" in os.environ:\n         ssl_file = Path(os.environ[\"SSL_CERT_FILE\"])"
+      },
+      {
+        "filename": "tests/test_utils.py",
+        "status": "modified",
+        "patch": "@@ -1,3 +1,4 @@\n+import json\n import logging\n import os\n import random\n@@ -10,7 +11,6 @@\n     URLPattern,\n     get_ca_bundle_from_env,\n     get_environment_proxies,\n-    guess_json_utf,\n     is_https_redirect,\n     obfuscate_sensitive_headers,\n     parse_header_links,\n@@ -34,12 +34,16 @@\n     ),\n )\n def test_encoded(encoding):\n-    data = \"{}\".encode(encoding)\n-    assert guess_json_utf(data) == encoding\n+    content = '{\"abc\": 123}'.encode(encoding)\n+    response = httpx.Response(200, content=content)\n+    assert response.json() == {\"abc\": 123}\n \n \n def test_bad_utf_like_encoding():\n-    assert guess_json_utf(b\"\\x00\\x00\\x00\\x00\") is None\n+    content = b\"\\x00\\x00\\x00\\x00\"\n+    response = httpx.Response(200, content=content)\n+    with pytest.raises(json.decoder.JSONDecodeError):\n+        response.json()\n \n \n @pytest.mark.parametrize(\n@@ -52,8 +56,9 @@ def test_bad_utf_like_encoding():\n     ),\n )\n def test_guess_by_bom(encoding, expected):\n-    data = \"\\ufeff{}\".encode(encoding)\n-    assert guess_json_utf(data) == expected\n+    content = '\\ufeff{\"abc\": 123}'.encode(encoding)\n+    response = httpx.Response(200, content=content)\n+    assert response.json() == {\"abc\": 123}\n \n \n @pytest.mark.parametrize("
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "alexmojaki",
+        "path": "httpx/_models.py",
+        "line": 766,
+        "body": "Just a random thing I noticed looking through the code, not a problem I've seen in the wild: isn't using `self.text` like this this better than the new version when there's a non-utf charset?",
+        "diff_hunk": "@@ -759,11 +758,7 @@ def raise_for_status(self) -> \"Response\":\n         raise HTTPStatusError(message, request=request, response=self)\n \n     def json(self, **kwargs: typing.Any) -> typing.Any:\n-        if self.charset_encoding is None and self.content and len(self.content) > 3:\n-            encoding = guess_json_utf(self.content)\n-            if encoding is not None:\n-                return jsonlib.loads(self.content.decode(encoding), **kwargs)\n-        return jsonlib.loads(self.text, **kwargs)",
+        "created_at": "2024-12-18T15:56:52+00:00"
+      }
+    ],
+    "final_sha": "51c579ab242056940741f3e79160e103e6905354",
+    "snapshot_is_final": true
+  },
+  {
+    "key": "encode/httpx#2909",
+    "repo": "encode/httpx",
+    "number": 2909,
+    "title": "Drop unneccessary `binascii` import",
+    "created_at": "2023-10-30T13:00:54+00:00",
+    "head_sha": "434f7b9753d7c00eb6a3f87463a8f689a2ddebe5",
+    "files": [
+      {
+        "filename": "httpx/_multipart.py",
+        "status": "modified",
+        "patch": "@@ -1,4 +1,3 @@\n-import binascii\n import io\n import os\n import typing\n@@ -200,7 +199,7 @@ def __init__(\n         boundary: typing.Optional[bytes] = None,\n     ) -> None:\n         if boundary is None:\n-            boundary = binascii.hexlify(os.urandom(16))\n+            boundary = ''.join([f'{byte:02x}' for byte in(os.urandom(16)])\n \n         self.boundary = boundary\n         self.content_type = \"multipart/form-data; boundary=%s\" % boundary.decode("
+      }
+    ],
+    "human_comments": [
+      {
+        "author": "T-256",
+        "path": "httpx/_multipart.py",
+        "line": 202,
+        "body": "Oh, I see python 2 user 😄 \r\n```suggestion\r\n            boundary = os.urandom(16).hex()\r\n```",
+        "diff_hunk": "@@ -200,7 +199,7 @@ def __init__(\n         boundary: typing.Optional[bytes] = None,\n     ) -> None:\n         if boundary is None:\n-            boundary = binascii.hexlify(os.urandom(16))\n+            boundary = ''.join([f'{byte:02x}' for byte in(os.urandom(16)])",
+        "created_at": "2023-10-30T13:03:24+00:00"
+      }
+    ],
+    "final_sha": "0c6f44c0e46c7b70d960306833a1f535befceb72",
+    "snapshot_is_final": false
+  }
+]
