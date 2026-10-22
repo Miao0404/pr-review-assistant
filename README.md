@@ -53,6 +53,20 @@ Main results (see [`summary.md`](experiments/context_ablation/data/summary.md)):
 - C1 cost about 60% more than C0 per review (paired permutation test, p = 0.006), because every extra step resends the whole conversation.
 - Two LLM judges disagreed on many issue matches, so disagreements were checked by hand.
 
+## What is measured
+
+The experiment harness records every agent run in [`runs.jsonl`](experiments/context_ablation/data/runs.jsonl) (111 runs): number of loop iterations, calls per tool, input and output tokens, cost, latency, invalid submissions and failures. This is application-level tracing. It does not yet capture system-level behavior such as CPU, memory, network traffic or data movement.
+
+To reproduce the results, follow the steps in the [experiment README](experiments/context_ablation/README.md).
+
+## Example output
+
+One finding from a real run on `psf/requests#7502`:
+
+> **[MEDIUM] Logic issue** in `src/requests/models.py`
+> `hasattr(fp, 'read')` only checks that the attribute exists, not that it is callable. An object with a non-callable `read` attribute would now raise a confusing `TypeError` instead of reaching the existing error handling.
+> *Suggestion:* use `callable(getattr(fp, 'read', None))`.
+
 ## Known limitations
 
 - The GitHub token used for fetching and posting has broader permissions than the service needs. A GitHub App with read access to code and write access to PR comments only would be safer.
