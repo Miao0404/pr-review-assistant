@@ -8,13 +8,13 @@ The repository also contains a [controlled experiment](experiments/context_ablat
 
 ```mermaid
 flowchart LR
-    PR["Pull request<br/>opened or updated"] -->|"HMAC-signed<br/>webhook"| SVC["FastAPI service<br/>fetch diff, index in Qdrant"]
+    PR["Pull request<br/>opened or updated"] -->|"HMAC-signed<br/>webhook"| SVC["FastAPI service<br/>fetch diff, index in Qdrant,<br/>validate and post the review"]
     SVC --> LLM
     subgraph LOOP["Agent loop, at most 10 steps"]
         LLM["Claude"] -->|"search_code"| VEC[("Qdrant")]
         LLM -->|"get_file_content"| REPO["Repository files<br/>read-only"]
     end
-    LLM -->|"submit_review"| POST["Service validates the review<br/>and posts the PR comment"]
+    LLM -.->|"submit_review"| SVC
 ```
 
 1. **Webhook.** GitHub sends a `pull_request` event. The service checks the HMAC-SHA256 signature and ignores unsigned or unrelated events.
