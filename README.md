@@ -7,16 +7,17 @@ The repository also contains a [controlled experiment](experiments/context_ablat
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     PR["Pull request opened or updated"] -->|"webhook, HMAC-signed"| API["FastAPI service"]
     API --> DIFF["Fetch diff from GitHub"]
     DIFF --> IDX["Chunk and embed diff into Qdrant"]
-    IDX --> LOOP
+    IDX --> LLM
     subgraph LOOP["Agent loop, at most 10 steps"]
-        LLM["Claude"] -->|"search_code"| VEC[("Qdrant")]
-        LLM -->|"get_file_content"| REPO["Repository files, read-only"]
-        LLM -->|"submit_review"| OUT["Structured review, validated with Pydantic"]
+        direction LR
+        VEC[("Qdrant")] <-->|"search_code"| LLM["Claude"]
+        LLM <-->|"get_file_content"| REPO["Repository files, read-only"]
     end
+    LLM -->|"submit_review"| OUT["Structured review, validated with Pydantic"]
     OUT --> POST["Service posts the review comment"]
 ```
 
