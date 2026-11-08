@@ -10,12 +10,14 @@ Run from repo root:  python -m experiments.context_ablation.judge --budget 3.5
 import argparse
 import json
 
+import anthropic
 import openai
 
 from app.core.config import settings
 from .common import GT_FILE, JUDGE_FILE, PRS_FILE, RUNS_FILE, append_jsonl, cost_usd, load_json, read_jsonl
 
-JUDGES = ["gpt-4.1", "gpt-4o-mini"]
+JUDGES = ["gpt-4.1", "gpt-4o-mini", "claude-opus-5-5"]  # third judge added 2026-11-08: a strong model from another family than gpt-4o-mini
+# Note: the reviewer is Claude Sonnet, so a Claude judge may favour Claude-style findings. It is equally Claude for all conditions.
 DIFF_CHARS = 20000  # judge sees the full diff
 
 PROMPT = """You are checking an automated code review of a GitHub pull request against issues that human reviewers raised.
@@ -55,13 +57,29 @@ def fmt_findings(findings: list[dict]) -> str:
     return "\n".join(f"{f['id']}. [{f['file']}] {f['description']} Suggestion: {f['suggestion']}" for f in findings)
 
 
-def judge_one(client, model: str, pr: dict, issues: list[dict], run: dict) -> dict:
-    resp = client.chat.completions.create(
-        model=model, temperature=0, response_format={"type": "json_object"},
-        messages=[{"role": "user", "content": PROMPT.format(
-            diff=fmt_diff(pr), issues=fmt_issues(issues), findings=fmt_findings(run["findings"]))}],
-    )
-    data = json.loads(resp.choices[0].message.content)
+def _parse_json(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+    return json.loads(text[text.find("{"): text.rfind("}") + 1])
+
+
+def judge_one(clients, model: str, pr: dict, issues: list[dict], run: dict) -> dict:
+    prompt = PROMPT.format(diff=fmt_diff(pr), issues=fmt_issues(issues), findings=fmt_findings(run["findings"]))
+    if model.startswith("claude"):
+        resp = clients["anthropic"].messages.create(
+            model=model, max_tokens=4096,  # this SDK/model does not accept temperature
+            messages=[{"role": "user", "content": prompt}],
+        )
+        data = _parse_json("".join(b.text for b in resp.content if b.type == "text"))
+        tok_in, tok_out = resp.usage.input_tokens, resp.usage.output_tokens
+    else:
+        resp = clients["openai"].chat.completions.create(
+            model=model, temperature=0, response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        data = json.loads(resp.choices[0].message.content)
+        tok_in, tok_out = resp.usage.prompt_tokens, resp.usage.completion_tokens
     n_issues = len(issues)
     matched = {int(d["issue_id"]) for d in data.get("issues", []) if d.get("matched")}
     verdicts = {d["finding_id"]: d["verdict"] for d in data.get("findings", [])}
@@ -75,16 +93,18 @@ def judge_one(client, model: str, pr: dict, issues: list[dict], run: dict) -> di
         "recall": len(matched) / n_issues,
         "precision": valid / (valid + invalid) if valid + invalid else None,
         "valid": valid, "invalid": invalid, "unverifiable": unver,
-        "cost_usd": round(cost_usd(model, resp.usage.prompt_tokens, resp.usage.completion_tokens), 5),
+        "cost_usd": round(cost_usd(model, tok_in, tok_out), 5),
     }
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--budget", type=float, required=True, help="max total OpenAI USD for judging")
+    ap.add_argument("--budget", type=float, required=True, help="max total judging USD (all judges, incl. earlier judgements)")
+    ap.add_argument("--judges", nargs="*", default=JUDGES, help="subset of judges to run")
     args = ap.parse_args()
 
-    client = openai.OpenAI(api_key=settings.openai_api_key)
+    clients = {"openai": openai.OpenAI(api_key=settings.openai_api_key),
+               "anthropic": anthropic.Anthropic(api_key=settings.anthropic_api_key)}
     prs = {p["key"]: p for p in load_json(PRS_FILE)}
     gt = load_json(GT_FILE)
     runs = [r for r in read_jsonl(RUNS_FILE) if r["status"] == "ok"]
@@ -92,14 +112,14 @@ def main():
     done = {(r["key"], r["condition"], r["rep"], r["judge"]) for r in done_rows}
     spent = sum(r["cost_usd"] for r in done_rows)
 
-    todo = [(r, j) for r in runs for j in JUDGES if (r["key"], r["condition"], r["rep"], j) not in done]
+    todo = [(r, j) for r in runs for j in args.judges if (r["key"], r["condition"], r["rep"], j) not in done]
     print(f"{len(todo)} judgements to do, spent so far ${spent:.2f}")
     for i, (run, j) in enumerate(todo, 1):
         if spent >= args.budget:
             print("Budget reached, stopping.")
             break
         try:
-            row = judge_one(client, j, prs[run["key"]], gt[run["key"]], run)
+            row = judge_one(clients, j, prs[run["key"]], gt[run["key"]], run)
         except Exception as e:
             print(f"[{i}] {run['key']} {run['condition']} {j}: ERROR {e}")
             continue

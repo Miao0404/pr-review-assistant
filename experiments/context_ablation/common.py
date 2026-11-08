@@ -21,6 +21,7 @@ PRICES = {
     "claude-sonnet-5": (2.0, 10.0),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1": (2.0, 8.0),
+    "claude-opus-5-5": (5.0, 25.0),  # third judge; check current price
 }
 
 

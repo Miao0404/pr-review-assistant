@@ -6,7 +6,7 @@ Question: does giving the review agent more context (search, full files) find mo
 |---|---|
 | C0 | diff only |
 | C1 | diff + `search_code` (semantic search over the diff chunks) |
-| C2 | diff + `search_code` + `get_file_content` (real file at PR head) |
+| C2 | diff + `get_file_content` (real file at PR head, truncated to 6000 chars; no search) |
 
 Same model, prompt template, output schema and PR sample in all conditions.
 

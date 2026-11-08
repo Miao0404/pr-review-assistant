@@ -31,6 +31,7 @@ _repo_cache: dict = {}
 MAX_ITERATIONS = 10
 DIFF_CHARS_PER_FILE = 20000  # no truncation: every setup sees the full diff (longest in sample ~6.6k)
 FILE_CHARS = 6000
+MAX_OUTPUT_TOKENS = 16000  # was 8192: 8 runs hit it before submitting (2026-11-08), raised for all conditions
 
 TOOL_DEFS = {
     "search_code": {
@@ -140,7 +141,7 @@ def review(pr: dict, condition: str) -> dict:
         for _ in range(MAX_ITERATIONS):
             rec["iterations"] += 1
             resp = client.messages.create(
-                model=model, max_tokens=8192, system=system_prompt(tools),
+                model=model, max_tokens=MAX_OUTPUT_TOKENS, system=system_prompt(tools),
                 messages=messages, tools=[TOOL_DEFS[t] for t in tools],
             )
             u = resp.usage

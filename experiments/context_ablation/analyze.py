@@ -10,7 +10,7 @@ import statistics as st
 
 from .common import CONDITIONS, DATA_DIR, JUDGE_FILE, RUNS_FILE, read_jsonl
 
-PRIMARY, SECONDARY = "gpt-4.1", "gpt-4o-mini"
+PRIMARY, OTHERS = "gpt-4.1", ["gpt-4o-mini", "claude-opus-5-5"]
 B = 10000
 rng = random.Random(0)
 out_lines: list[str] = []
@@ -99,6 +99,19 @@ def main():
             f"{100*mean([1 if x['used_get_file'] else 0 for x in ok]):.0f} | {mean([x['input_tokens'] for x in ok]):.0f} | "
             f"{mean([x['output_tokens'] for x in ok]):.0f} | {mean([x['cost_usd'] for x in ok]):.3f} | {mean([x['latency_s'] for x in ok]):.1f} |")
 
+    say()
+    say("PRs where at least one human issue was found, per judge (rep 0, successful runs only):")
+    say()
+    for j in [PRIMARY] + OTHERS:
+        parts = []
+        for c in CONDITIONS:
+            ok = [x for x in rep0 if x["condition"] == c and x["status"] == "ok"]
+            js = [J.get((x["key"], c, 0, j)) for x in ok]
+            if all(js) and js:
+                parts.append(f"{c} {sum(r['recall'] > 0 for r in js)}/{len(js)}")
+        if parts:
+            say(f"- {j}: " + ", ".join(parts))
+
     # ---------- paired comparisons ----------
     say()
     say("## 2. Paired differences (same PR, rep 0)")
@@ -146,35 +159,39 @@ def main():
     say()
     say("## 4. Judge agreement")
     say()
-    ia, ib, fa, fb = [], [], [], []
-    for (k, c, rep, j), r in J.items():
-        if j != PRIMARY or (k, c, rep, SECONDARY) not in J:
-            continue
-        s = J[(k, c, rep, SECONDARY)]
-        for iid in range(1, r["n_issues"] + 1):
-            ia.append(iid in r["matched_issue_ids"]); ib.append(iid in s["matched_issue_ids"])
-        for fid, v in r["verdicts"].items():
-            if fid in s["verdicts"]:
-                fa.append(v); fb.append(s["verdicts"][fid])
-    if ia:
-        say(f"Issue matched yes/no: {len(ia)} items, agreement {100*sum(x==y for x,y in zip(ia,ib))/len(ia):.0f}%, Cohen's kappa {kappa(ia, ib):.2f}")
-    if fa:
-        say(f"Finding verdict: {len(fa)} items, agreement {100*sum(x==y for x,y in zip(fa,fb))/len(fa):.0f}%, Cohen's kappa {kappa(fa, fb):.2f}")
-
-    say()
-    say("Does the recall conclusion hold under the second judge?")
-    say()
-    for a, b in [("C1", "C0"), ("C2", "C0"), ("C2", "C1")]:
-        diffs = []
+    for other in OTHERS:
+        ia, ib, fa, fb = [], [], [], []
         for (k, c, rep, j), r in J.items():
-            if j == SECONDARY and c == a and rep == 0 and (k, b, 0, SECONDARY) in J:
-                diffs.append(r["recall"] - J[(k, b, 0, SECONDARY)]["recall"])
-        if len(diffs) >= 3:
-            lo, hi = bootstrap_ci(diffs)
-            say(f"- {a} - {b} recall ({SECONDARY}): {st.mean(diffs):+.3f}  CI [{lo:+.3f}, {hi:+.3f}]  n={len(diffs)}")
+            if j != PRIMARY or (k, c, rep, other) not in J:
+                continue
+            s2 = J[(k, c, rep, other)]
+            for iid in range(1, r["n_issues"] + 1):
+                ia.append(iid in r["matched_issue_ids"]); ib.append(iid in s2["matched_issue_ids"])
+            for fid, v in r["verdicts"].items():
+                if fid in s2["verdicts"]:
+                    fa.append(v); fb.append(s2["verdicts"][fid])
+        if not ia:
+            continue
+        say(f"### {PRIMARY} vs {other}")
+        say()
+        say(f"Issue matched yes/no: {len(ia)} items, agreement {100*sum(x==y for x,y in zip(ia,ib))/len(ia):.0f}%, Cohen's kappa {kappa(ia, ib):.2f}")
+        if fa:
+            say(f"Finding verdict: {len(fa)} items, agreement {100*sum(x==y for x,y in zip(fa,fb))/len(fa):.0f}%, Cohen's kappa {kappa(fa, fb):.2f}")
+        say()
+        say(f"Does the recall conclusion hold under {other}?")
+        say()
+        for a, b in [("C1", "C0"), ("C2", "C0"), ("C2", "C1")]:
+            diffs = []
+            for (k, c, rep, j), r in J.items():
+                if j == other and c == a and rep == 0 and (k, b, 0, other) in J:
+                    diffs.append(r["recall"] - J[(k, b, 0, other)]["recall"])
+            if len(diffs) >= 3:
+                lo, hi = bootstrap_ci(diffs)
+                say(f"- {a} - {b} recall ({other}): {st.mean(diffs):+.3f}  CI [{lo:+.3f}, {hi:+.3f}]  permutation p {signflip_p(diffs):.3f}  n={len(diffs)}")
+        say()
 
     say()
-    say(f"Total spend: Anthropic ${sum(r['cost_usd'] for r in runs):.2f}, OpenAI judging ${sum(r['cost_usd'] for r in judg):.2f}")
+    say(f"Total spend: Anthropic ${sum(r['cost_usd'] for r in runs):.2f}, judging ${sum(r['cost_usd'] for r in judg):.2f}")
     (DATA_DIR / "summary.md").write_text("\n".join(out_lines), encoding="utf-8")
     print(f"\nWritten {DATA_DIR / 'summary.md'} and per_run.csv")
 
