@@ -45,13 +45,20 @@ flowchart LR
 |---|---|
 | C0 | diff only |
 | C1 | diff + `search_code` (more steps, no new information) |
-| C2 | diff + `search_code` + `get_file_content` (real repository context) |
+| C2 | diff + `get_file_content` (real repository context) |
 
 Main results (see [`summary.md`](experiments/context_ablation/data/summary.md)):
 
-- More context did not find more of the human-reported issues. The recall differences were within run-to-run noise.
-- C1 cost about 60% more than C0 per review (paired permutation test, p = 0.006), because every extra step resends the whole conversation.
-- Two LLM judges disagreed on many issue matches, so disagreements were checked by hand.
+| | C0 | C1 | C2 |
+|---|---|---|---|
+| PRs with a human issue found, judged by GPT-4.1 (of 27) | 18 | 15 | 14 |
+| PRs with a human issue found, judged by Claude Opus (of 27) | 14 | 13 | 14 |
+| Cost per review | $0.055 | $0.086 | $0.112 |
+
+- More context did not find more of the human-reported issues. Under GPT-4.1 the differences were not significant (paired permutation test, p ≥ 0.12), and under Claude Opus they disappeared.
+- Extra tools cost more: C1 about 60% more than C0 and C2 about twice as much (p < 0.01), because every extra step resends the whole conversation.
+- The two strong judges agreed on 87% of issue matches (Cohen's kappa 0.73). An earlier second judge, GPT-4o-mini, marked almost everything as found (kappa 0.03 with GPT-4.1), so it was replaced as the cross-check. Some disagreements were also checked by hand.
+- 8 runs first failed by hitting the output token limit before submitting a review. The limit was raised and those runs were redone; the failed runs are kept in `data/failed_runs_max_tokens_8192.jsonl`.
 
 ## What is measured
 
